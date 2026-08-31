@@ -37,7 +37,7 @@ func _ready() -> void:
 	margin.add_child(v)
 
 	var title := Label.new()
-	title.text = "Hidden Hollow"
+	title.text = "Seeker"
 	title.add_theme_font_size_override("font_size", 26)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
@@ -70,7 +70,7 @@ func _ready() -> void:
 		day_buttons.append(b)
 	v.add_child(HSeparator.new())
 	_btn(v, "Quit…").pressed.connect(func() -> void:
-		_ask("Quit Hidden Hollow?", func() -> void: get_tree().quit()))
+		_ask("Quit Seeker?", func() -> void: get_tree().quit()))
 
 	confirm = ConfirmationDialog.new()
 	confirm.title = "Confirm"

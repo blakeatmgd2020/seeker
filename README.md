@@ -1,4 +1,4 @@
-# Hidden Hollow
+# Seeker
 
 A third-person open-world hide-and-seek game (Godot 4.7.1). Somewhere in the
 valley, one of 20 searchable structures hides a wooden tag with a number on
@@ -13,7 +13,7 @@ each behind a confirmation dialog.
 
 ## Play
 
-Double-click `play_hidden_hollow.bat`, or:
+Double-click `play_seeker.bat`, or:
 
 ```
 Godot_v4.7.1-stable_win64.exe --path <this folder>
