@@ -25,7 +25,11 @@ var biome: Dictionary = {}
 var mood_name := ""
 var weather_id := "clear"
 var weather_name := "Clear"
-var tools := {map = false, compass = false, spyglass = false}
+var tools := {map = false, compass = false, spyglass = false,
+	pencil = false, notepad = false, eraser = false}
+var trail: Array[Vector2] = []
+var spotted: Array[Interactable] = []
+var spot_idx := 0
 var debug_biome := ""
 
 var _env: Environment
@@ -149,7 +153,12 @@ func _build_world() -> void:
 	trng.seed = _day_seed(day_offset) ^ 0x5DEECE66
 	_assign_tag(trng, -1)
 	_assign_tools(trng)
-	tools = {map = false, compass = false, spyglass = false}
+	tools = {map = false, compass = false, spyglass = false,
+		pencil = false, notepad = false, eraser = false}
+	trail.clear()
+	spotted.clear()
+	spot_idx = 0
+	hud.clear_annotations()
 	hud.set_tools(tools)
 	hud.set_map_texture(terrain.make_map_texture())
 	hud.set_count(0, structures.size())
@@ -374,13 +383,13 @@ func _assign_tools(trng: RandomNumberGenerator) -> void:
 		if structures[i].has_item:
 			tag_idx = i
 	var picks: Array[int] = []
-	while picks.size() < 3:
+	while picks.size() < 6:
 		var i := trng.randi_range(0, structures.size() - 1)
 		if i == tag_idx or i in picks:
 			continue
 		picks.append(i)
-	var ids := ["map", "compass", "spyglass"]
-	for k in 3:
+	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "eraser"]
+	for k in ids.size():
 		structures[picks[k]].tool_id = ids[k]
 
 
@@ -421,7 +430,60 @@ func rehide_tag() -> void:
 	hud.toast("The tag has been re-hidden somewhere new.")
 
 
+# --- pencil / spotting ---------------------------------------------------
+
+## The pencil needs something to write on.
+func can_note_spots() -> bool:
+	return tools.pencil and (tools.map or tools.notepad)
+
+
+func record_trail(wp: Vector2) -> void:
+	if trail.is_empty() or trail[trail.size() - 1].distance_to(wp) > 2.0:
+		trail.append(wp)
+
+
+func erase_trail_near(wp: Vector2, r: float) -> void:
+	var keep: Array[Vector2] = []
+	for p in trail:
+		if p.distance_to(wp) > r:
+			keep.append(p)
+	trail = keep
+
+
+func add_spot(s: Interactable) -> void:
+	if s.spotted or s.opened:
+		return
+	s.spotted = true
+	spotted.append(s)
+	if spotted.size() == 1:
+		spot_idx = 0
+
+
+func cycle_spot() -> void:
+	if spotted.is_empty():
+		return
+	spot_idx = (spot_idx + 1) % spotted.size()
+
+
+func selected_spot() -> Interactable:
+	if spotted.is_empty():
+		return null
+	spot_idx = clampi(spot_idx, 0, spotted.size() - 1)
+	return spotted[spot_idx]
+
+
+func _remove_spot(s: Interactable) -> void:
+	s.spotted = false
+	var i := spotted.find(s)
+	if i >= 0:
+		spotted.remove_at(i)
+	if spot_idx >= spotted.size():
+		spot_idx = 0
+
+
 func _on_searched(s: Interactable) -> void:
+	if s.spotted:
+		_remove_spot(s)
 	searched_count += 1
 	hud.set_count(searched_count, structures.size())
 	var had_tool := not s.tool_id.is_empty()
@@ -446,7 +508,8 @@ func _update_day_info() -> void:
 func _setup_input() -> void:
 	var binds := [["move_forward", KEY_W], ["move_back", KEY_S],
 		["move_left", KEY_A], ["move_right", KEY_D], ["jump", KEY_SPACE],
-		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z]]
+		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z],
+		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M]]
 	for b in binds:
 		if InputMap.has_action(b[0]):
 			continue
@@ -526,10 +589,16 @@ func _shot_routine() -> void:
 			best = d
 			nearest = s
 	player.set_target(nearest)
-	tools = {map = true, compass = false, spyglass = true}
+	tools = {map = true, compass = false, spyglass = true,
+		pencil = true, notepad = true, eraser = true}
 	hud.set_tools(tools)
 	for s in structures:
 		s.seen = true
+	add_spot(nearest)
+	# Fake a little wandering so the trail ink shows in screenshots.
+	var pw := Vector2(player.position.x, player.position.z)
+	for i in 30:
+		record_trail(pw + Vector2(sin(i * 0.4) * 14.0, -i * 3.0))
 	await get_tree().create_timer(2.2).timeout
 	var dir := OS.get_environment("HH_SHOT_DIR")
 	if dir.is_empty():
@@ -553,6 +622,10 @@ func _shot_routine() -> void:
 	cam.current = true
 	await get_tree().create_timer(0.8).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_aerial.png"))
+	hud.toggle_big_map()
+	await get_tree().create_timer(0.5).timeout
+	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_map.png"))
+	hud.toggle_big_map()
 	menu.open()
 	await get_tree().create_timer(0.5).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_menu.png"))

@@ -45,19 +45,26 @@ WoW-style mouse: the cursor is free and independent of the camera.
 
 ## Tools
 
-Three tools are hidden in three structures each day (never the tag's):
+Six tools are hidden in six distinct structures each day (never the tag's):
 
-- **Map** — a minimap appears top-right: terrain, water, the village plaza,
-  and a dot for every structure you've *discovered* (walked within ~20 m of,
-  or spotted through the spyglass). Searched structures show gray. With the
-  map alone the view is **view-up**: the map rotates with your camera around
-  your position and the centered arrow always points up.
-- **Compass** — a heading strip appears top-center showing the direction the
-  camera faces. With map *and* compass the minimap locks **north-up** and
-  your arrow rotates to show your facing instead.
+- **Map** — a minimap appears top-right (terrain, water, village plaza) and
+  **M** opens the full map. With the map alone the minimap is **view-up**
+  (rotates around your position, centered arrow up); nothing is marked on it
+  yet — a bare map records nothing.
+- **Compass** — a heading strip appears top-center. With map *and* compass
+  the minimap locks **north-up** and your arrow rotates instead.
 - **Spyglass** — hold **Z** to zoom ~4×; unsearched structures with a clear
-  line of sight get floating name-and-distance labels out to ~300 m, and
-  anything you spot is added to the map.
+  line of sight get floating name-and-distance labels out to ~300 m.
+- **Pencil** — the record-keeper. With pencil + map, your path is inked onto
+  the map as you walk (permanent unless erased) and discovered structures
+  finally appear as dots. In the M map view, left-drag draws freehand notes.
+- **Notepad** — an alternate writing surface: with spyglass + pencil + (map
+  or notepad), structures seen through the spyglass are *logged*: they turn
+  green on the map until searched, and a **Spotted** list appears bottom-right.
+  **Tab** cycles the selection; with the compass, a green caret on the heading
+  strip points at the selected node's bearing.
+- **Eraser** — trail ink and drawings are permanent without it. With it,
+  right-drag in the M map view erases strokes and trail alike.
 
 Tools persist through re-hide rounds but reset with a new day (or day
 restart/travel) — finding them is part of each day's puzzle.

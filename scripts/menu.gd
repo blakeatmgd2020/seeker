@@ -123,6 +123,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		if visible:
 			close()
+		elif main and main.hud and main.hud.big_map_open():
+			main.hud.toggle_big_map()
 		elif main and main.player and main.player.target:
 			main.player.set_target(null)
 		else:

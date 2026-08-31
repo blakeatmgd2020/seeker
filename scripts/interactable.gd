@@ -20,8 +20,9 @@ var sink_shapes: Array[CollisionShape3D] = []
 var item_anchor := Vector3(0, 1.0, 0)
 var ring_radius := 1.0
 var tag_text := ""
-var tool_id := ""    ## "map" / "compass" / "spyglass" if a tool is inside
-var seen := false    ## discovered for the minimap (walked near or spyglassed)
+var tool_id := ""    ## which tool is inside ("map", "pencil", ...), if any
+var seen := false    ## discovered (walked near or spyglassed)
+var spotted := false ## logged via spyglass + pencil + writing surface
 
 var _tweens: Array[Tween] = []
 var _item_holder: Node3D = null
@@ -132,6 +133,19 @@ func spawn_tool_prop(id: String) -> void:
 			Util.cyl(holder, 0.055, 0.07, 0.42, Vector3.ZERO, dark, Vector3(0, 0, 90), 12)
 			Util.cyl(holder, 0.045, 0.045, 0.12, Vector3(0.26, 0, 0),
 				TexF.mat("metal"), Vector3(0, 0, 90), 12)
+		"pencil":
+			Util.cyl(holder, 0.035, 0.035, 0.42, Vector3.ZERO,
+				TexF.plain(Color(0.88, 0.72, 0.18)), Vector3(0, 0, 90), 8)
+			Util.cyl(holder, 0.0, 0.035, 0.09, Vector3(0.25, 0, 0),
+				TexF.plain(Color(0.25, 0.18, 0.12)), Vector3(0, 0, -90), 8)
+		"notepad":
+			Util.box(holder, Vector3(0.3, 0.05, 0.4), Vector3.ZERO,
+				TexF.plain(Color(0.93, 0.92, 0.86)), false)
+			Util.box(holder, Vector3(0.3, 0.06, 0.06), Vector3(0, 0.005, -0.18),
+				TexF.mat("metal"), false)
+		"eraser":
+			Util.box(holder, Vector3(0.24, 0.09, 0.13), Vector3.ZERO,
+				TexF.plain(Color(0.92, 0.48, 0.55)), false)
 	var gl := OmniLight3D.new()
 	gl.light_color = Color(1, 0.95, 0.7)
 	gl.omni_range = 2.5

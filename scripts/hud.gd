@@ -21,6 +21,11 @@ var map_panel: Control
 var map_overlay: MiniOverlay
 var compass: CompassStrip
 var spy_overlay: SpyOverlay
+var spot_panel: PanelContainer
+var spot_box: VBoxContainer
+var big_dim: ColorRect
+var big_map: BigMap
+var _spot_rows: Array[Label] = []
 var _toast_tween: Tween = null
 
 
@@ -30,6 +35,53 @@ func setup(m: Node) -> void:
 	map_overlay.main = m
 	compass.main = m
 	spy_overlay.main = m
+	big_map.main = m
+
+
+func update_spots(entries: Array) -> void:
+	if entries.is_empty() or big_map.visible:
+		spot_panel.visible = false
+		return
+	spot_panel.visible = true
+	while _spot_rows.size() > entries.size():
+		var l: Label = _spot_rows.pop_back()
+		spot_box.remove_child(l)
+		l.queue_free()
+	while _spot_rows.size() < entries.size():
+		var l := _label(15, Color.WHITE)
+		spot_box.add_child(l)
+		_spot_rows.append(l)
+	for i in entries.size():
+		var e: Dictionary = entries[i]
+		var l := _spot_rows[i]
+		l.text = ("▶ " if e.selected else "   ") + "%s · %d m" % [
+			String(e.name).capitalize(), int(e.dist)]
+		l.add_theme_color_override("font_color",
+			Color(0.45, 0.95, 0.45) if e.selected else Color(1, 1, 1, 0.85))
+
+
+func toggle_big_map() -> void:
+	if big_map.visible:
+		big_map.visible = false
+		big_dim.visible = false
+		return
+	if main == null or not main.tools.map:
+		toast("You need the map to do that.")
+		return
+	var vp := get_viewport().get_visible_rect().size
+	var side := minf(vp.x, vp.y) * 0.82
+	big_map.size = Vector2(side, side)
+	big_map.position = (vp - big_map.size) * 0.5
+	big_dim.visible = true
+	big_map.visible = true
+
+
+func big_map_open() -> bool:
+	return big_map.visible
+
+
+func clear_annotations() -> void:
+	big_map.reset_annotations()
 
 
 func set_tools(t: Dictionary) -> void:
@@ -42,6 +94,7 @@ func set_tools(t: Dictionary) -> void:
 
 func set_map_texture(tex: Texture2D) -> void:
 	map_overlay.map_tex = tex
+	big_map.map_tex = tex
 
 
 func set_spy(active: bool, spots: Array) -> void:
@@ -91,12 +144,25 @@ class MiniOverlay:
 	func _draw_map_and_dots() -> void:
 		if map_tex:
 			draw_texture_rect(map_tex, Rect2(Vector2.ZERO, size), false)
+		# Nothing is written on the map until you hold the pencil.
+		if not main.tools.pencil:
+			return
+		if main.trail.size() > 1:
+			var pts := PackedVector2Array()
+			for p in main.trail:
+				pts.append(_to_px(p))
+			draw_polyline(pts, Color(0.45, 0.12, 0.08, 0.8), 1.3)
+		var sel: Interactable = main.selected_spot()
 		for s in main.structures:
 			if not is_instance_valid(s) or not s.seen:
 				continue
 			var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
 			if s.opened:
 				draw_circle(p, 2.5, Color(0.55, 0.55, 0.55, 0.8))
+			elif s.spotted:
+				draw_circle(p, 3.2, Color(0.3, 0.95, 0.35))
+				if s == sel:
+					draw_arc(p, 5.5, 0.0, TAU, 16, Color(0.3, 0.95, 0.35), 1.4)
 			else:
 				draw_circle(p, 3.0, Color(1.0, 0.82, 0.25))
 
@@ -140,6 +206,150 @@ class CompassStrip:
 				HORIZONTAL_ALIGNMENT_CENTER, 28, fs, col)
 		draw_string(f, Vector2(cx - 24, 44), "%d°" % int(heading),
 			HORIZONTAL_ALIGNMENT_CENTER, 48, 12, Color(1, 1, 1, 0.7))
+		# Green caret at the bearing of the selected spotted node.
+		var spot: Interactable = main.selected_spot()
+		if spot and is_instance_valid(spot):
+			var d3: Vector3 = spot.global_position - main.player.global_position
+			var bearing := wrapf(rad_to_deg(-atan2(-d3.x, -d3.z)), 0.0, 360.0)
+			var delta := wrapf(bearing - heading + 180.0, 0.0, 360.0) - 180.0
+			var x := cx + clampf(delta * 3.4, -175.0, 175.0)
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(x - 6, 40), Vector2(x + 6, 40), Vector2(x, 32)]),
+				Color(0.3, 0.95, 0.35))
+
+
+## Full-screen map (M): the painted terrain with trail ink and node marks
+## (pencil-gated, same rules as the minimap), plus a lightweight paint layer —
+## LMB draws with the pencil, RMB erases strokes AND trail with the eraser.
+class BigMap:
+	extends Control
+	const ANNOT_RES := 512
+	var main: Node = null
+	var map_tex: Texture2D = null
+	var annot_img: Image
+	var annot_tex: ImageTexture
+	var _last := Vector2(-1, -1)
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		clip_contents = true
+
+	func reset_annotations() -> void:
+		annot_img = Image.create(ANNOT_RES, ANNOT_RES, false, Image.FORMAT_RGBA8)
+		annot_img.fill(Color(0, 0, 0, 0))
+		annot_tex = ImageTexture.create_from_image(annot_img)
+
+	func _process(_d: float) -> void:
+		if visible:
+			queue_redraw()
+
+	func _to_px(w: Vector2) -> Vector2:
+		return Vector2((w.x + 250.0) / 500.0 * size.x, (w.y + 250.0) / 500.0 * size.y)
+
+	func _world_of(local: Vector2) -> Vector2:
+		return Vector2(local.x / size.x * 500.0 - 250.0, local.y / size.y * 500.0 - 250.0)
+
+	func _draw() -> void:
+		if main == null:
+			return
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.10, 0.08, 0.06, 0.97), true)
+		if map_tex:
+			draw_texture_rect(map_tex, Rect2(Vector2.ZERO, size), false)
+		if annot_tex:
+			draw_texture_rect(annot_tex, Rect2(Vector2.ZERO, size), false)
+		if main.tools.pencil:
+			if main.trail.size() > 1:
+				var pts := PackedVector2Array()
+				for p in main.trail:
+					pts.append(_to_px(p))
+				draw_polyline(pts, Color(0.45, 0.12, 0.08, 0.85), 2.0)
+			var sel: Interactable = main.selected_spot()
+			for s in main.structures:
+				if not is_instance_valid(s) or not s.seen:
+					continue
+				var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
+				if s.opened:
+					draw_circle(p, 4.0, Color(0.55, 0.55, 0.55, 0.8))
+				elif s.spotted:
+					draw_circle(p, 5.0, Color(0.3, 0.95, 0.35))
+					if s == sel:
+						draw_arc(p, 9.0, 0.0, TAU, 20, Color(0.3, 0.95, 0.35), 2.0)
+				else:
+					draw_circle(p, 4.5, Color(1.0, 0.82, 0.25))
+		if main.player:
+			var pp := _to_px(Vector2(main.player.global_position.x, main.player.global_position.z))
+			if main.tools.compass:
+				var fy: float = main.player.cam_yaw
+				var dirv := Vector2(-sin(fy), -cos(fy))
+				var side := dirv.orthogonal()
+				draw_colored_polygon(PackedVector2Array([
+					pp + dirv * 12.0, pp - dirv * 6.0 + side * 7.0, pp - dirv * 6.0 - side * 7.0]),
+					Color.WHITE)
+			else:
+				draw_circle(pp, 6.0, Color.WHITE)
+				draw_circle(pp, 3.0, Color(0.2, 0.2, 0.2))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.85, 0.75, 0.5), false, 3.0)
+		var hint := "M — close"
+		if main.tools.pencil:
+			hint += " · left-drag draw"
+		if main.tools.eraser:
+			hint += " · right-drag erase"
+		var f := ThemeDB.fallback_font
+		draw_string_outline(f, Vector2(12, size.y - 12), hint,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 5, Color(0, 0, 0, 0.9))
+		draw_string(f, Vector2(12, size.y - 12), hint,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+
+	func _gui_input(event: InputEvent) -> void:
+		if main == null:
+			return
+		if event is InputEventMouseButton and not event.pressed:
+			_last = Vector2(-1, -1)
+			return
+		var draw_btn := false
+		var erase_btn := false
+		var pos := Vector2.ZERO
+		if event is InputEventMouseButton and event.pressed:
+			pos = event.position
+			draw_btn = event.button_index == MOUSE_BUTTON_LEFT
+			erase_btn = event.button_index == MOUSE_BUTTON_RIGHT
+			_last = Vector2(-1, -1)
+		elif event is InputEventMouseMotion:
+			pos = event.position
+			draw_btn = (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0
+			erase_btn = (event.button_mask & MOUSE_BUTTON_MASK_RIGHT) != 0
+		else:
+			return
+		if draw_btn and main.tools.pencil:
+			_stroke(pos, false)
+		elif erase_btn and main.tools.eraser:
+			_stroke(pos, true)
+		else:
+			_last = Vector2(-1, -1)
+
+	func _stroke(pos: Vector2, erase: bool) -> void:
+		var from := _last if _last.x >= 0.0 else pos
+		var steps := maxi(int(from.distance_to(pos) / 2.0), 1)
+		for i in steps + 1:
+			var p := from.lerp(pos, float(i) / steps)
+			_brush(p / size * float(ANNOT_RES), erase)
+			if erase:
+				main.erase_trail_near(_world_of(p), 9.0)
+		_last = pos
+		annot_tex.update(annot_img)
+
+	func _brush(ip: Vector2, erase: bool) -> void:
+		var r := 7 if erase else 2
+		var col := Color(0, 0, 0, 0) if erase else Color(0.42, 0.10, 0.07, 0.95)
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if dx * dx + dy * dy > r * r:
+					continue
+				var px := int(ip.x) + dx
+				var py := int(ip.y) + dy
+				if px < 0 or py < 0 or px >= ANNOT_RES or py >= ANNOT_RES:
+					continue
+				annot_img.set_pixel(px, py, col)
 
 
 ## Floating name · distance labels while the spyglass is raised.
@@ -168,14 +378,14 @@ class SpyOverlay:
 
 func _ready() -> void:
 	var help := _label(14, Color(1, 1, 1, 0.75))
-	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Shift sprint · Space jump · Z spyglass · Esc deselect / menu"
+	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Shift sprint · Space jump\nZ spyglass · M map · Tab cycle spots · Esc deselect / menu"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(14, 8)
 	add_child(help)
 
 	day_label = _label(15, Color(1.0, 0.95, 0.8))
 	day_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	day_label.position = Vector2(14, 54)
+	day_label.position = Vector2(14, 74)
 	add_child(day_label)
 
 	counter = _label(20, Color.WHITE)
@@ -230,27 +440,31 @@ func _ready() -> void:
 	hover_label.visible = false
 	add_child(hover_label)
 
-	# tool chips (dim until found)
-	var chips := HBoxContainer.new()
-	chips.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	chips.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	chips.position = Vector2(-250, 70)
-	chips.size = Vector2(236, 24)
-	chips.alignment = BoxContainer.ALIGNMENT_END
-	chips.add_theme_constant_override("separation", 14)
-	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(chips)
-	for id in ["map", "compass", "spyglass"]:
-		var c := _label(15, Color(1, 1, 1, 0.3))
-		c.text = id.capitalize()
-		chips.add_child(c)
-		tool_chips[id] = c
+	# tool chips (dim until found), two rows
+	var chips_v := VBoxContainer.new()
+	chips_v.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	chips_v.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	chips_v.position = Vector2(-250, 66)
+	chips_v.size = Vector2(236, 44)
+	chips_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(chips_v)
+	for row in [["map", "compass", "spyglass"], ["pencil", "notepad", "eraser"]]:
+		var chips := HBoxContainer.new()
+		chips.alignment = BoxContainer.ALIGNMENT_END
+		chips.add_theme_constant_override("separation", 12)
+		chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chips_v.add_child(chips)
+		for id in row:
+			var c := _label(14, Color(1, 1, 1, 0.3))
+			c.text = id.capitalize()
+			chips.add_child(c)
+			tool_chips[id] = c
 
 	# minimap (visible once the map is found)
 	map_panel = Control.new()
 	map_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	map_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	map_panel.position = Vector2(-238, 100)
+	map_panel.position = Vector2(-238, 118)
 	map_panel.size = Vector2(224, 224)
 	map_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	map_panel.visible = false
@@ -276,6 +490,38 @@ func _ready() -> void:
 	spy_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	spy_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(spy_overlay)
+
+	# spotted-nodes list (bottom right)
+	spot_panel = PanelContainer.new()
+	spot_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	spot_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	spot_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	spot_panel.position = Vector2(-264, -46)
+	spot_panel.custom_minimum_size = Vector2(250, 0)
+	spot_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spot_panel.visible = false
+	var sv := VBoxContainer.new()
+	sv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spot_panel.add_child(sv)
+	var st := _label(13, Color(1.0, 0.85, 0.4))
+	st.text = "Spotted — Tab to cycle"
+	sv.add_child(st)
+	spot_box = VBoxContainer.new()
+	spot_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sv.add_child(spot_box)
+	add_child(spot_panel)
+
+	# full map view (M)
+	big_dim = ColorRect.new()
+	big_dim.color = Color(0, 0, 0, 0.45)
+	big_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	big_dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	big_dim.visible = false
+	add_child(big_dim)
+	big_map = BigMap.new()
+	big_map.visible = false
+	add_child(big_map)
+	big_map.reset_annotations()
 
 	banner = PanelContainer.new()
 	banner.set_anchors_preset(Control.PRESET_CENTER_TOP)

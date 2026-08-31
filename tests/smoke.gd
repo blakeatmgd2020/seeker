@@ -73,7 +73,7 @@ func _process(_delta: float) -> bool:
 	if _holders(main) != 1:
 		fails.append("day 3: expected 1 holder, got %d" % _holders(main))
 
-	# Tools: exactly 3 distinct tools hidden, never in the tag's structure.
+	# Tools: exactly 6 distinct tools hidden, never in the tag's structure.
 	var tool_ids: Array = []
 	for s in main.structures:
 		if not s.tool_id.is_empty():
@@ -81,10 +81,11 @@ func _process(_delta: float) -> bool:
 			if s.has_item:
 				fails.append("tool '%s' shares the tag's structure" % s.tool_id)
 	tool_ids.sort()
-	if tool_ids != ["compass", "map", "spyglass"]:
+	if tool_ids != ["compass", "eraser", "map", "notepad", "pencil", "spyglass"]:
 		fails.append("tool spots wrong: %s" % str(tool_ids))
-	if main.tools.map or main.tools.compass or main.tools.spyglass:
-		fails.append("tools should start uncollected")
+	for id in main.tools:
+		if main.tools[id]:
+			fails.append("tool '%s' should start uncollected" % id)
 	if hud_map_missing(main):
 		fails.append("minimap texture not generated")
 
@@ -109,9 +110,27 @@ func _process(_delta: float) -> bool:
 			item_s = s
 		elif empty_s == null and s.tool_id.is_empty() and not s.opened:
 			empty_s = s
+	# Spotting: add to list, then searching removes it.
+	main.add_spot(empty_s)
+	if main.spotted.size() != 1 or main.selected_spot() != empty_s:
+		fails.append("add_spot did not register")
+	main.cycle_spot()
+	if main.selected_spot() != empty_s:
+		fails.append("cycle_spot broke on single entry")
 	empty_s.interact()
 	if not empty_s.opened:
 		fails.append("empty structure did not open")
+	if not main.spotted.is_empty() or empty_s.spotted:
+		fails.append("searching a spotted node did not clear it")
+
+	# Trail record + erase.
+	main.record_trail(Vector2(0, 0))
+	main.record_trail(Vector2(5, 0))
+	if main.trail.size() < 2:
+		fails.append("trail did not record")
+	main.erase_trail_near(Vector2(2.5, 0), 10.0)
+	if not main.trail.is_empty():
+		fails.append("erase_trail_near did not erase")
 	item_s.interact()
 	if item_s._item_holder == null:
 		fails.append("tag not revealed")
@@ -156,19 +175,22 @@ func _process(_delta: float) -> bool:
 			uncollected += 1
 			if s.has_item:
 				fails.append("rehidden tag landed on an unfound tool")
-	if uncollected != 2:
-		fails.append("expected 2 unfound tools after collecting 1, got %d" % uncollected)
+	if uncollected != 5:
+		fails.append("expected 5 unfound tools after collecting 1, got %d" % uncollected)
 
 	# New day resets the toolkit.
 	main.load_day(1)
-	if main.tools.map or main.tools.compass or main.tools.spyglass:
-		fails.append("tools not reset on day change")
+	for id in main.tools:
+		if main.tools[id]:
+			fails.append("tool '%s' not reset on day change" % id)
+	if not main.trail.is_empty() or not main.spotted.is_empty():
+		fails.append("trail/spots not reset on day change")
 	var fresh := 0
 	for s in main.structures:
 		if not s.tool_id.is_empty():
 			fresh += 1
-	if fresh != 3:
-		fails.append("day change should hide 3 fresh tools, got %d" % fresh)
+	if fresh != 6:
+		fails.append("day change should hide 6 fresh tools, got %d" % fresh)
 
 	# Every biome must generate a valid world (20 structures, 1 tag, 3 tools,
 	# a weather roll, and a village).
@@ -186,8 +208,8 @@ func _process(_delta: float) -> bool:
 		for s in main.structures:
 			if not s.tool_id.is_empty():
 				btools += 1
-		if btools != 3:
-			fails.append("%s: expected 3 tools, got %d" % [b, btools])
+		if btools != 6:
+			fails.append("%s: expected 6 tools, got %d" % [b, btools])
 		if main.weather_name.is_empty():
 			fails.append("%s: no weather rolled" % b)
 		if main.world.get_node_or_null("Village") == null:

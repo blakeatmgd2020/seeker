@@ -115,6 +115,16 @@ func _build_visual() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("cycle_spot"):
+		if main:
+			main.cycle_spot()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("toggle_map"):
+		if hud:
+			hud.toggle_big_map()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
@@ -290,6 +300,10 @@ func _physics_process(delta: float) -> void:
 func _update_discovery(spy: bool) -> void:
 	if main == null:
 		return
+	# Pencil + map: ink the path as we walk.
+	if main.tools.pencil and main.tools.map:
+		main.record_trail(Vector2(global_position.x, global_position.z))
+
 	var spots: Array = []
 	var space := get_world_3d().direct_space_state
 	for s in main.structures:
@@ -307,6 +321,15 @@ func _update_discovery(spy: bool) -> void:
 			if space.intersect_ray(q):
 				continue
 			s.seen = true
+			if main.can_note_spots():
+				main.add_spot(s)
 			spots.append({pos = p3, text = "%s · %d m" % [s.display_name, int(d)]})
 	if hud:
 		hud.set_spy(spy, spots)
+		var entries: Array = []
+		for i in main.spotted.size():
+			var sp: Interactable = main.spotted[i]
+			entries.append({name = sp.display_name,
+				dist = global_position.distance_to(sp.global_position),
+				selected = i == main.spot_idx})
+		hud.update_spots(entries)
