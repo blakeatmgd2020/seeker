@@ -1,0 +1,312 @@
+class_name Player
+extends CharacterBody3D
+## Third-person character with WoW-style mouse controls:
+## free cursor; left-drag orbits the camera, right-drag steers the character,
+## both buttons run forward; wheel zooms; left-click targets, right-click
+## interacts within range; E interacts with the current target.
+
+const WALK_SPEED := 5.2
+const SPRINT_SPEED := 8.8
+const BACKPEDAL_FACTOR := 0.6
+const JUMP_VEL := 5.4
+const GRAVITY := 14.0
+const MOUSE_SENS := 0.22
+const INTERACT_RANGE := 4.0
+const CAM_FOLLOW_RATE := 2.5
+const DRAG_THRESHOLD := 6.0
+const BASE_FOV := 72.0
+const SPY_FOV := 16.0
+const SPY_RANGE := 300.0
+const DISCOVER_RANGE := 22.0
+
+var hud: Hud = null
+var main: Node = null
+var zoom_target := 4.3
+var yaw_node: Node3D
+var pitch_node: Node3D
+var arm: SpringArm3D
+var cam: Camera3D
+var body_vis: Node3D
+var target: Interactable = null
+
+var facing := 0.0
+var cam_yaw := 0.0
+var _lmb := false
+var _rmb := false
+var _dragging := false
+var _press_accum := 0.0
+var _saved_cursor := Vector2.ZERO
+
+
+func _init() -> void:
+	name = "Player"
+	collision_layer = 1
+	collision_mask = 3
+	var cs := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.35
+	cap.height = 1.75
+	cs.shape = cap
+	cs.position = Vector3(0, 0.9, 0)
+	add_child(cs)
+	_build_visual()
+	yaw_node = Node3D.new()
+	yaw_node.position = Vector3(0, 1.55, 0)
+	add_child(yaw_node)
+	pitch_node = Node3D.new()
+	pitch_node.rotation_degrees.x = -14
+	yaw_node.add_child(pitch_node)
+	arm = SpringArm3D.new()
+	arm.spring_length = 4.3
+	arm.margin = 0.3
+	arm.collision_mask = 1
+	pitch_node.add_child(arm)
+	cam = Camera3D.new()
+	cam.far = 900.0
+	cam.fov = 72.0
+	arm.add_child(cam)
+
+
+func _ready() -> void:
+	arm.add_excluded_object(get_rid())
+	cam.current = true
+
+
+func _build_visual() -> void:
+	body_vis = Node3D.new()
+	body_vis.rotation.y = PI
+	add_child(body_vis)
+	var shirt := TexF.plain(Color(0.2, 0.35, 0.6))
+	var pants := TexF.plain(Color(0.35, 0.26, 0.18))
+	var skin := TexF.plain(Color(0.9, 0.72, 0.58))
+	var torso := CapsuleMesh.new()
+	torso.radius = 0.26
+	torso.height = 0.95
+	torso.material = shirt
+	Util.mesh(body_vis, torso, Vector3(0, 1.02, 0))
+	var head := SphereMesh.new()
+	head.radius = 0.17
+	head.height = 0.34
+	head.material = skin
+	Util.mesh(body_vis, head, Vector3(0, 1.62, 0))
+	var hat := CylinderMesh.new()
+	hat.top_radius = 0.16
+	hat.bottom_radius = 0.19
+	hat.height = 0.1
+	hat.material = TexF.plain(Color(0.65, 0.2, 0.15))
+	Util.mesh(body_vis, hat, Vector3(0, 1.76, 0))
+	var arm_m := CapsuleMesh.new()
+	arm_m.radius = 0.09
+	arm_m.height = 0.62
+	arm_m.material = shirt
+	Util.mesh(body_vis, arm_m, Vector3(-0.36, 1.08, 0))
+	Util.mesh(body_vis, arm_m, Vector3(0.36, 1.08, 0))
+	var leg := BoxMesh.new()
+	leg.size = Vector3(0.15, 0.62, 0.18)
+	leg.material = pants
+	Util.mesh(body_vis, leg, Vector3(-0.11, 0.31, 0))
+	Util.mesh(body_vis, leg, Vector3(0.11, 0.31, 0))
+	var eye := SphereMesh.new()
+	eye.radius = 0.028
+	eye.height = 0.056
+	eye.material = TexF.plain(Color(0.08, 0.08, 0.1))
+	Util.mesh(body_vis, eye, Vector3(-0.06, 1.65, 0.145))
+	Util.mesh(body_vis, eye, Vector3(0.06, 1.65, 0.145))
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		match event.button_index:
+			MOUSE_BUTTON_LEFT:
+				_mouse_button(event, true)
+			MOUSE_BUTTON_RIGHT:
+				_mouse_button(event, false)
+			MOUSE_BUTTON_WHEEL_UP:
+				if event.pressed:
+					zoom_target = clampf(zoom_target - 0.7, 1.4, 11.0)
+			MOUSE_BUTTON_WHEEL_DOWN:
+				if event.pressed:
+					zoom_target = clampf(zoom_target + 0.7, 1.4, 11.0)
+	elif event is InputEventMouseMotion:
+		_mouse_motion(event)
+
+
+func _mouse_button(e: InputEventMouseButton, is_left: bool) -> void:
+	if e.pressed:
+		if not _lmb and not _rmb:
+			_saved_cursor = get_viewport().get_mouse_position()
+			_press_accum = 0.0
+		if is_left:
+			_lmb = true
+		else:
+			_rmb = true
+			if _dragging:
+				facing = cam_yaw
+	else:
+		if is_left:
+			_lmb = false
+		else:
+			_rmb = false
+		if not _lmb and not _rmb:
+			if _dragging:
+				_dragging = false
+				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+				get_viewport().warp_mouse(_saved_cursor)
+			else:
+				_click(is_left, e.position)
+
+
+func _mouse_motion(e: InputEventMouseMotion) -> void:
+	if not (_lmb or _rmb):
+		return
+	if not _dragging:
+		_press_accum += e.relative.length()
+		if _press_accum > DRAG_THRESHOLD:
+			_dragging = true
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if _dragging:
+		# Sensitivity scales with FOV so the spyglass aims steadily.
+		var sens := MOUSE_SENS * (cam.fov / BASE_FOV)
+		pitch_node.rotation_degrees.x = clampf(
+			pitch_node.rotation_degrees.x + e.relative.y * sens, -75.0, 55.0)
+		cam_yaw -= deg_to_rad(e.relative.x * sens)
+		if _rmb:
+			facing = cam_yaw
+
+
+func _click(is_left: bool, pos: Vector2) -> void:
+	var s := _pick(pos)
+	if is_left:
+		set_target(s)
+	elif s:
+		set_target(s)
+		try_interact(s)
+
+
+func _pick(pos: Vector2) -> Interactable:
+	var origin := cam.project_ray_origin(pos)
+	var dirn := cam.project_ray_normal(pos)
+	var q := PhysicsRayQueryParameters3D.create(origin, origin + dirn * 120.0, 3, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit and hit.collider is Interactable:
+		return hit.collider
+	return null
+
+
+## Instantly snap character facing and camera together (used on spawn).
+func set_facing(f: float) -> void:
+	facing = f
+	cam_yaw = f
+	yaw_node.rotation.y = f
+	body_vis.rotation.y = f + PI
+
+
+## Abort any in-progress mouse drag (used when the menu opens mid-drag).
+func release_drag() -> void:
+	_lmb = false
+	_rmb = false
+	if _dragging:
+		_dragging = false
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func set_target(s: Interactable) -> void:
+	if target and is_instance_valid(target):
+		target.set_selected(false)
+	target = s
+	if target:
+		target.set_selected(true)
+	elif hud:
+		hud.hide_target()
+
+
+func try_interact(s: Interactable) -> void:
+	if s.opened:
+		if hud:
+			hud.toast("The %s has already been searched." % s.display_name)
+	elif global_position.distance_to(s.global_position) > INTERACT_RANGE:
+		if hud:
+			hud.toast("Out of range — get closer.")
+	else:
+		s.interact()
+
+
+func _physics_process(delta: float) -> void:
+	if not is_on_floor():
+		velocity.y -= GRAVITY * delta
+	elif Input.is_action_just_pressed("jump"):
+		velocity.y = JUMP_VEL
+
+	var iv := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	if _lmb and _rmb:
+		iv.y = -1.0
+	var dir := Basis(Vector3.UP, facing) * Vector3(iv.x, 0, iv.y)
+	dir.y = 0.0
+	if dir.length() > 1.0:
+		dir = dir.normalized()
+	var sp := SPRINT_SPEED if Input.is_action_pressed("sprint") else WALK_SPEED
+	if iv.y > 0.0:
+		sp *= BACKPEDAL_FACTOR
+	velocity.x = lerpf(velocity.x, dir.x * sp, minf(1.0, 10.0 * delta))
+	velocity.z = lerpf(velocity.z, dir.z * sp, minf(1.0, 10.0 * delta))
+	move_and_slide()
+
+	body_vis.rotation.y = lerp_angle(body_vis.rotation.y, facing + PI, minf(1.0, 14.0 * delta))
+
+	# Camera swings back behind the character while moving (unless the
+	# player is holding a left-drag orbit).
+	if iv.length() > 0.05 and not (_dragging and _lmb and not _rmb):
+		cam_yaw = lerp_angle(cam_yaw, facing, minf(1.0, CAM_FOLLOW_RATE * delta))
+	yaw_node.rotation.y = cam_yaw
+
+	# Spyglass: hold Z (once found) to zoom in and spot structures far away.
+	var spy: bool = main != null and main.tools.spyglass \
+		and Input.is_action_pressed("spyglass")
+	cam.fov = lerpf(cam.fov, SPY_FOV if spy else BASE_FOV, minf(1.0, 10.0 * delta))
+	arm.spring_length = lerpf(arm.spring_length,
+		0.6 if spy else zoom_target, minf(1.0, 10.0 * delta))
+	body_vis.visible = cam.fov > 40.0
+	_update_discovery(spy)
+
+	if hud:
+		if target and is_instance_valid(target):
+			var d := global_position.distance_to(target.global_position)
+			hud.update_target(target.display_name, d, d <= INTERACT_RANGE, target.opened)
+		else:
+			hud.hide_target()
+		if not _dragging:
+			var mp := get_viewport().get_mouse_position()
+			var hs := _pick(mp)
+			hud.set_hover(hs.display_name if hs else "", mp)
+		else:
+			hud.set_hover("", Vector2.ZERO)
+
+	if Input.is_action_just_pressed("interact") and target and is_instance_valid(target):
+		try_interact(target)
+
+
+## Marks nearby structures as discovered; while the spyglass is raised, also
+## marks and labels any unsearched structure with a clear line of sight.
+func _update_discovery(spy: bool) -> void:
+	if main == null:
+		return
+	var spots: Array = []
+	var space := get_world_3d().direct_space_state
+	for s in main.structures:
+		if not is_instance_valid(s):
+			continue
+		var d := global_position.distance_to(s.global_position)
+		if not s.seen and d < DISCOVER_RANGE:
+			s.seen = true
+		if spy and not s.opened and d > 12.0 and d < SPY_RANGE:
+			var p3: Vector3 = s.global_position + Vector3.UP * 1.2
+			if cam.is_position_behind(p3):
+				continue
+			var q := PhysicsRayQueryParameters3D.create(
+				cam.global_position, p3, 1, [get_rid(), s.get_rid()])
+			if space.intersect_ray(q):
+				continue
+			s.seen = true
+			spots.append({pos = p3, text = "%s · %d m" % [s.display_name, int(d)]})
+	if hud:
+		hud.set_spy(spy, spots)

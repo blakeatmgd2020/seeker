@@ -1,0 +1,130 @@
+class_name GameMenu
+extends CanvasLayer
+## Esc pause menu: re-hide the tag, restart the day, travel to one of the
+## last 7 daily worlds, or quit — every action behind a confirmation dialog.
+## Esc first clears the current target (WoW-style), then opens the menu.
+
+var main: Node = null
+var day_info: Label
+var day_buttons: Array[Button] = []
+var confirm: ConfirmationDialog
+var _pending := Callable()
+
+
+func _init() -> void:
+	layer = 10
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	visible = false
+
+
+func _ready() -> void:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.45)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+	var panel := PanelContainer.new()
+	center.add_child(panel)
+	var margin := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		margin.add_theme_constant_override(side, 22)
+	panel.add_child(margin)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	margin.add_child(v)
+
+	var title := Label.new()
+	title.text = "Hidden Hollow"
+	title.add_theme_font_size_override("font_size", 26)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(title)
+	day_info = Label.new()
+	day_info.add_theme_font_size_override("font_size", 15)
+	day_info.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	day_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(day_info)
+	v.add_child(HSeparator.new())
+
+	_btn(v, "Resume").pressed.connect(close)
+	_btn(v, "Re-hide the tag…").pressed.connect(func() -> void:
+		_ask("Close every structure and hide the tag somewhere new?",
+			func() -> void: main.rehide_tag()))
+	_btn(v, "Restart this day…").pressed.connect(func() -> void:
+		_ask("Regenerate this day's world from scratch?",
+			func() -> void: main.load_day(main.day_offset)))
+	v.add_child(HSeparator.new())
+
+	var lbl := Label.new()
+	lbl.text = "Travel to a day:"
+	lbl.add_theme_font_size_override("font_size", 15)
+	v.add_child(lbl)
+	for i in 7:
+		var off := i
+		var b := _btn(v, "")
+		b.pressed.connect(func() -> void:
+			_ask("Travel to %s? The world will regenerate." % main.day_label(off),
+				func() -> void: main.load_day(off)))
+		day_buttons.append(b)
+	v.add_child(HSeparator.new())
+	_btn(v, "Quit…").pressed.connect(func() -> void:
+		_ask("Quit Hidden Hollow?", func() -> void: get_tree().quit()))
+
+	confirm = ConfirmationDialog.new()
+	confirm.title = "Confirm"
+	confirm.confirmed.connect(_on_confirmed)
+	add_child(confirm)
+
+
+func _btn(parent: Control, text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(300, 34)
+	parent.add_child(b)
+	return b
+
+
+func _ask(text: String, action: Callable) -> void:
+	_pending = action
+	confirm.dialog_text = text
+	confirm.popup_centered()
+
+
+func _on_confirmed() -> void:
+	close()
+	if _pending.is_valid():
+		_pending.call()
+	_pending = Callable()
+
+
+func open() -> void:
+	visible = true
+	get_tree().paused = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if main and main.player:
+		main.player.release_drag()
+	if main:
+		day_info.text = "%s · %s · Round %d" % [
+			main.day_label(main.day_offset), main.mood_name, main.round_num]
+		for i in 7:
+			day_buttons[i].text = main.day_label(i)
+			day_buttons[i].disabled = i == main.day_offset
+
+
+func close() -> void:
+	visible = false
+	get_tree().paused = false
+	confirm.hide()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		if visible:
+			close()
+		elif main and main.player and main.player.target:
+			main.player.set_target(null)
+		else:
+			open()
+		get_viewport().set_input_as_handled()

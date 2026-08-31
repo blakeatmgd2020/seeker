@@ -1,0 +1,3 @@
+# Godot cache/import artifacts
+.godot/
+*.tmp
