@@ -4,12 +4,25 @@ A third-person open-world hide-and-seek game (Godot 4.7.1). Somewhere in the
 valley, one of 20 searchable structures hides a wooden tag with a number on
 it — find it.
 
-Every calendar day generates a new world from that date's seed: terrain,
-village layout, structure placement, your spawn point, the weather mood, and
-the tag's number. The same day always rebuilds the same world (quit and
-resume the same hunt), and the Esc menu lets you travel to any of the last
-7 daily worlds, re-hide the tag for another round, restart the day, or quit —
-each behind a confirmation dialog.
+Every calendar day generates a new world from that date's seed: **one of four
+biomes** (Green Meadow, Autumn Vale, Winter Highlands, Sunscar Badlands —
+equal odds), terrain, village layout and architecture, structure placement,
+your spawn point, the sky mood, the weather, and the tag's number. The same
+day always rebuilds the same world (quit and resume the same hunt), and the
+Esc menu lets you travel to any of the last 7 daily worlds, re-hide the tag
+for another round, restart the day, or quit — each behind a confirmation
+dialog.
+
+Each biome has its own flora, village style (plaster/timber/alpine/adobe),
+and structure pool with overlap — snow mounds and firewood stacks in winter,
+clay urns and bone piles in the desert, leaf piles and scarecrows in autumn.
+Weather is uncommon and biome-appropriate: rain (or snowfall) about 1 day in
+4, fog or high winds (leaf gales, blizzards, dust storms) about 1 in 10.
+
+Structures rest naturally on the land: the world is laid out before the
+terrain mesh is built, so buildings sit on foundation cuts and rigid objects
+on small carved terraces; mounds stay vertical and sink so their skirts meet
+the slope; fallen logs lie along the slope contour.
 
 ## Play
 
@@ -57,7 +70,8 @@ assets. The single scene (`scenes/main.tscn`) is just a root node running
 
 | File | Responsibility |
 | --- | --- |
-| `scripts/main.gd` | Orchestrator: daily seeds, world build/teardown, moods, tag & tool assignment, rounds |
+| `scripts/main.gd` | Orchestrator: daily seeds, layout→carve→build order, moods, weather, tag & tool assignment, rounds |
+| `scripts/biomes.gd` | Biome definitions: palettes, flora counts, structure pools, moods, weather tables |
 | `scripts/terrain.gd` | Heightfield mesh + collision, splat shader, village flattening, water level, minimap texture |
 | `scripts/village.gd` | Randomized village: houses, barn, well, loose structures |
 | `scripts/structures.gd` | Factory for the 7 searchable structure types |

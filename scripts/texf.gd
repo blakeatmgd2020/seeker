@@ -153,6 +153,70 @@ static func mat(key: String) -> Material:
 			w.roughness = 0.06
 			w.metallic = 0.3
 			m = w
+		"oasis":
+			var o := StandardMaterial3D.new()
+			o.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			o.albedo_color = Color(0.14, 0.42, 0.40, 0.66)
+			o.roughness = 0.08
+			o.metallic = 0.25
+			m = o
+		"ice":
+			m = _std(noise_tex("icetex", 130, 0.08, [0.0, 1.0],
+				[Color(0.78, 0.86, 0.92), Color(0.90, 0.95, 1.0)]),
+				Color.WHITE, Vector3(6, 6, 1), 0.25)
+		"snow":
+			m = _std(noise_tex("snowtex", 131, 0.3, [0.0, 1.0],
+				[Color(0.86, 0.89, 0.94), Color(0.96, 0.97, 1.0)]),
+				Color.WHITE, Vector3(1.5, 1.5, 1))
+		"leaf_pile":
+			m = _std(noise_tex("leafpile", 132, 0.5, [0.0, 0.4, 0.7, 1.0],
+				[Color(0.55, 0.22, 0.08), Color(0.72, 0.38, 0.10),
+				 Color(0.62, 0.28, 0.10), Color(0.78, 0.55, 0.16)]),
+				Color.WHITE, Vector3(2, 2, 1))
+		"sand_mound":
+			m = _std(noise_tex("dirt", 102, 0.12, [], []), Color(0.88, 0.74, 0.50), Vector3(1.5, 1.5, 1))
+		"bleached":
+			m = _std(noise_tex("bark", 114, 0.5, [], []), Color(0.82, 0.76, 0.66), Vector3(6.0, 0.8, 1.0))
+		"clay":
+			m = _std(noise_tex("claytex", 133, 0.25, [0.0, 1.0],
+				[Color(0.62, 0.36, 0.22), Color(0.74, 0.48, 0.30)]),
+				Color.WHITE, Vector3(1.5, 1.5, 1))
+		"bone":
+			m = plain(Color(0.88, 0.85, 0.76), 0.7)
+		"adobe":
+			m = _std(noise_tex("adobetex", 134, 0.4, [0.0, 1.0],
+				[Color(0.78, 0.62, 0.42), Color(0.88, 0.73, 0.52)]),
+				Color.WHITE, Vector3(1, 1, 1))
+		"timber":
+			m = _std(noise_tex("wood", 110, 0.3, [], []), Color(0.42, 0.32, 0.24), Vector3(0.6, 4.0, 1.0))
+		"logwall":
+			m = _std(noise_tex("wood", 110, 0.3, [], []), Color(0.60, 0.44, 0.30), Vector3(5.0, 1.0, 1.0))
+		"cactus":
+			m = _std(noise_tex("cactustex", 135, 0.5, [0.0, 1.0],
+				[Color(0.22, 0.42, 0.20), Color(0.34, 0.55, 0.28)]),
+				Color.WHITE, Vector3(4.0, 0.8, 1.0))
+		"deadwood":
+			m = _std(noise_tex("bark", 114, 0.5, [], []), Color(0.55, 0.48, 0.40), Vector3(6.0, 0.8, 1.0))
+		"dry_bush":
+			m = _std(noise_tex("leaves", 115, 0.5, [], []), Color(0.55, 0.48, 0.28), Vector3(2, 2, 1))
+		"leaves_autumn1":
+			m = _std(noise_tex("laut1", 136, 0.5, [0.0, 0.5, 1.0],
+				[Color(0.62, 0.25, 0.08), Color(0.78, 0.40, 0.10), Color(0.70, 0.32, 0.10)]),
+				Color.WHITE, Vector3(2, 2, 1))
+		"leaves_autumn2":
+			m = _std(noise_tex("laut2", 137, 0.5, [0.0, 0.5, 1.0],
+				[Color(0.72, 0.14, 0.10), Color(0.85, 0.28, 0.14), Color(0.62, 0.18, 0.10)]),
+				Color.WHITE, Vector3(2, 2, 1))
+		"leaves_autumn3":
+			m = _std(noise_tex("laut3", 138, 0.5, [0.0, 0.5, 1.0],
+				[Color(0.80, 0.60, 0.14), Color(0.90, 0.74, 0.24), Color(0.74, 0.55, 0.14)]),
+				Color.WHITE, Vector3(2, 2, 1))
+		"mushroom_cap":
+			m = plain(Color(0.75, 0.18, 0.14), 0.6)
+		"roof_brown":
+			m = _std(noise_tex("roofbrown", 139, 0.2, [0.0, 1.0],
+				[Color(0.34, 0.22, 0.14), Color(0.46, 0.32, 0.20)]),
+				Color.WHITE, Vector3(3, 3, 1))
 		_:
 			m = plain(Color.MAGENTA)
 	_mats[key] = m

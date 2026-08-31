@@ -106,8 +106,8 @@ func open() -> void:
 	if main and main.player:
 		main.player.release_drag()
 	if main:
-		day_info.text = "%s · %s · Round %d" % [
-			main.day_label(main.day_offset), main.mood_name, main.round_num]
+		day_info.text = "%s · %s · %s · Round %d" % [
+			main.day_label(main.day_offset), main.biome.label, main.mood_name, main.round_num]
 		for i in 7:
 			day_buttons[i].text = main.day_label(i)
 			day_buttons[i].disabled = i == main.day_offset

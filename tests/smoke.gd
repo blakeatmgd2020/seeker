@@ -41,8 +41,8 @@ func _process(_delta: float) -> bool:
 		return false
 	var fails: Array[String] = []
 	var main = root.get_node_or_null("Main")
-	if main == null:
-		print("FAIL: Main node missing")
+	if main == null or main.get_script() == null:
+		print("FAIL: Main node missing or script failed to compile")
 		quit(1)
 		return true
 
@@ -170,8 +170,32 @@ func _process(_delta: float) -> bool:
 	if fresh != 3:
 		fails.append("day change should hide 3 fresh tools, got %d" % fresh)
 
+	# Every biome must generate a valid world (20 structures, 1 tag, 3 tools,
+	# a weather roll, and a village).
+	for b in Biomes.all_ids():
+		main.debug_biome = b
+		main.load_day(0)
+		if main.biome.id != b:
+			fails.append("biome override '%s' not applied" % b)
+			continue
+		if main.structures.size() != 20:
+			fails.append("%s: expected 20 structures, got %d" % [b, main.structures.size()])
+		if _holders(main) != 1:
+			fails.append("%s: holders != 1" % b)
+		var btools := 0
+		for s in main.structures:
+			if not s.tool_id.is_empty():
+				btools += 1
+		if btools != 3:
+			fails.append("%s: expected 3 tools, got %d" % [b, btools])
+		if main.weather_name.is_empty():
+			fails.append("%s: no weather rolled" % b)
+		if main.world.get_node_or_null("Village") == null:
+			fails.append("%s: village missing" % b)
+	main.debug_biome = ""
+
 	if fails.is_empty():
-		print("SMOKE PASS (daily worldgen, determinism, 20 structures, targeting, menu rehide OK)")
+		print("SMOKE PASS (daily worldgen, determinism, 4 biomes, weather, targeting, menu rehide OK)")
 		quit(0)
 	else:
 		for f in fails:
