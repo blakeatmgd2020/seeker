@@ -47,8 +47,6 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			attempts += 1
 			var x := rng.randf_range(-235.0, 235.0)
 			var z := rng.randf_range(-235.0, 235.0)
-			if Vector2(x, z).length() < 52.0:
-				continue
 			var h := terrain.height_at(x, z)
 			if h < terrain.water_y + 1.8:
 				continue
@@ -90,7 +88,7 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			break
 		var x := rng.randf_range(-235.0, 235.0)
 		var z := rng.randf_range(-235.0, 235.0)
-		if Vector2(x, z).length() < 34.0 or _excluded(exclusions, x, z):
+		if _excluded(exclusions, x, z):
 			continue
 		var h := terrain.height_at(x, z)
 		if h < terrain.water_y + 0.5:
@@ -108,7 +106,7 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			break
 		var x := rng.randf_range(-220.0, 220.0)
 		var z := rng.randf_range(-220.0, 220.0)
-		if Vector2(x, z).length() < 70.0 or _excluded(exclusions, x, z):
+		if _excluded(exclusions, x, z):
 			continue
 		var h := terrain.height_at(x, z)
 		if h < terrain.water_y + 0.5:
@@ -135,7 +133,7 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 
 static func _scatter_decor(root: Node3D, terrain: Terrain, exclusions: Array,
 		rng: RandomNumberGenerator, fnoise: FastNoiseLite, mesh: Mesh, count: int,
-		min_r: float, forest_gate: bool) -> void:
+		_min_r: float, forest_gate: bool) -> void:
 	if count <= 0:
 		return
 	var xforms: Array[Transform3D] = []
@@ -144,7 +142,7 @@ static func _scatter_decor(root: Node3D, terrain: Terrain, exclusions: Array,
 			break
 		var x := rng.randf_range(-230.0, 230.0)
 		var z := rng.randf_range(-230.0, 230.0)
-		if Vector2(x, z).length() < min_r or _excluded(exclusions, x, z):
+		if _excluded(exclusions, x, z):
 			continue
 		if forest_gate and fnoise.get_noise_2d(x, z) < -0.1:
 			continue
@@ -177,7 +175,7 @@ static func _scatter_flowers(root: Node3D, terrain: Terrain, exclusions: Array,
 			break
 		var x := rng.randf_range(-220.0, 220.0)
 		var z := rng.randf_range(-220.0, 220.0)
-		if Vector2(x, z).length() < 20.0 or _excluded(exclusions, x, z):
+		if _excluded(exclusions, x, z):
 			continue
 		var h := terrain.height_at(x, z)
 		if h < terrain.water_y + 1.2 or terrain.normal_at(x, z).y < 0.85:

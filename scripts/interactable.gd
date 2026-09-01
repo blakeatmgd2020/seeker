@@ -19,6 +19,7 @@ var sink_shapes: Array[CollisionShape3D] = []
 var item_anchor := Vector3(0, 1.0, 0)
 var ring_radius := 1.0
 var tool_id := ""    ## which tool is inside ("map", "pencil", ...), if any
+var extinguish_node: GPUParticles3D = null  ## stops emitting when searched
 var seen := false    ## discovered (walked near or spyglassed)
 var spotted := false ## logged via spyglass + pencil + writing surface
 
@@ -58,6 +59,8 @@ func interact() -> void:
 		return
 	opened = true
 	_animate_open()
+	if extinguish_node:
+		extinguish_node.emitting = false
 	searched.emit(self)
 
 

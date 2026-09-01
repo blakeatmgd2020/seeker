@@ -13,6 +13,7 @@ var stam_bg: ColorRect
 var stam_fill: ColorRect
 var coffee_btn: Button
 var coffee_buff: Label
+var _pulse := 0.0
 var target_frame: PanelContainer
 var target_name: Label
 var target_status: Label
@@ -28,18 +29,25 @@ var spot_panel: PanelContainer
 var spot_box: VBoxContainer
 var big_dim: ColorRect
 var big_map: BigMap
+var big_pad: BigMap
 var _spot_rows: Array[Label] = []
 var _toast_tween: Tween = null
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if main == null or not visible:
 		return
+	_pulse += delta
 	coffee_btn.visible = main.has_coffee
 	if main.coffee_active():
-		coffee_buff.visible = true
+		# The stamina bar becomes the glowing yellow caffeine countdown.
 		var s: int = main.coffee_remaining()
+		coffee_buff.visible = true
 		coffee_buff.text = "Caffeinated · %d:%02d" % [s / 60, s % 60]
+		stam_bg.visible = true
+		stam_fill.size.x = 180.0 * (main.coffee_remaining() / 120.0)
+		var glow := 0.5 + 0.5 * sin(_pulse * 6.0)
+		stam_fill.color = Color(1.0, 0.85, 0.2).lerp(Color(1.0, 1.0, 0.55), glow)
 	else:
 		coffee_buff.visible = false
 
@@ -51,10 +59,11 @@ func setup(m: Node) -> void:
 	compass.main = m
 	spy_overlay.main = m
 	big_map.main = m
+	big_pad.main = m
 
 
 func update_spots(entries: Array) -> void:
-	if entries.is_empty() or big_map.visible:
+	if entries.is_empty() or big_map.visible or big_pad.visible:
 		spot_panel.visible = false
 		return
 	spot_panel.visible = true
@@ -77,33 +86,57 @@ func update_spots(entries: Array) -> void:
 
 func toggle_big_map() -> void:
 	if big_map.visible:
-		big_map.visible = false
-		big_dim.visible = false
+		close_big_views()
 		return
 	if main == null or not main.tools.map:
 		toast("You need the map to do that.")
 		return
+	_open_big(big_map)
+
+
+func toggle_big_pad() -> void:
+	if big_pad.visible:
+		close_big_views()
+		return
+	if main == null or not main.tools.notepad:
+		toast("You need the notepad to do that.")
+		return
+	_open_big(big_pad)
+
+
+func _open_big(view: BigMap) -> void:
+	big_map.visible = false
+	big_pad.visible = false
 	var vp := get_viewport().get_visible_rect().size
 	var side := minf(vp.x, vp.y) * 0.82
-	big_map.size = Vector2(side, side)
-	big_map.position = (vp - big_map.size) * 0.5
+	view.size = Vector2(side, side)
+	view.position = (vp - view.size) * 0.5
 	big_dim.visible = true
-	big_map.visible = true
+	view.visible = true
+
+
+func close_big_views() -> void:
+	big_map.visible = false
+	big_pad.visible = false
+	big_dim.visible = false
 
 
 func big_map_open() -> bool:
-	return big_map.visible
+	return big_map.visible or big_pad.visible
 
 
 func clear_annotations() -> void:
 	big_map.reset_annotations()
+	big_pad.annot_img = big_map.annot_img
+	big_pad.annot_tex = big_map.annot_tex
 
 
 func set_tools(t: Dictionary) -> void:
 	for id in tool_chips:
 		tool_chips[id].add_theme_color_override("font_color",
 			Color(1.0, 0.82, 0.25) if t[id] else Color(1, 1, 1, 0.3))
-	map_panel.visible = t.map
+	map_panel.visible = t.map or t.notepad
+	map_overlay.paper = t.notepad and not t.map
 	compass.visible = t.compass
 
 
@@ -126,6 +159,7 @@ class MiniOverlay:
 	extends Control
 	var main: Node = null
 	var map_tex: Texture2D = null
+	var paper := false  ## notepad-only mode: paper, trail, and spots
 
 	func _process(_d: float) -> void:
 		if is_visible_in_tree():
@@ -137,7 +171,8 @@ class MiniOverlay:
 	func _draw() -> void:
 		if main == null:
 			return
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.08, 0.07, 0.05, 0.85), true)
+		draw_rect(Rect2(Vector2.ZERO, size),
+			Color(0.88, 0.84, 0.72, 0.95) if paper else Color(0.08, 0.07, 0.05, 0.85), true)
 		var pp := Vector2.ZERO
 		var f := 0.0
 		if main.player:
@@ -146,20 +181,21 @@ class MiniOverlay:
 		if main.tools.compass:
 			_draw_map_and_dots()
 			if main.player:
-				_arrow(pp, f)
+				var arrow_col := Color(0.35, 0.3, 0.25) if paper else Color.WHITE
+				_arrow(pp, f, arrow_col)
 		elif main.player:
-			# Rotate the whole map around the player so the view is up.
+			# Rotate the whole view around the player so facing is up.
 			var rz := Transform2D(f, Vector2.ZERO)
 			draw_set_transform_matrix(Transform2D(f, size * 0.5 - rz * pp))
 			_draw_map_and_dots()
 			draw_set_transform_matrix(Transform2D())
-			_arrow(size * 0.5, 0.0)
+			_arrow(size * 0.5, 0.0, Color(0.35, 0.3, 0.25) if paper else Color.WHITE)
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.85, 0.75, 0.5, 0.9), false, 2.0)
 
 	func _draw_map_and_dots() -> void:
-		if map_tex:
+		if map_tex and not paper:
 			draw_texture_rect(map_tex, Rect2(Vector2.ZERO, size), false)
-		# Nothing is written on the map until you hold the pencil.
+		# Nothing is written down until you hold the pencil.
 		if not main.tools.pencil:
 			return
 		if main.trail.size() > 1:
@@ -169,7 +205,17 @@ class MiniOverlay:
 			draw_polyline(pts, Color(0.45, 0.12, 0.08, 0.8), 1.3)
 		var sel: Interactable = main.selected_spot()
 		for s in main.structures:
-			if not is_instance_valid(s) or not s.seen:
+			if not is_instance_valid(s):
+				continue
+			if paper:
+				# The notepad records only what you've logged.
+				if s.spotted:
+					var pn := _to_px(Vector2(s.global_position.x, s.global_position.z))
+					draw_circle(pn, 3.2, Color(0.25, 0.65, 0.25))
+					if s == sel:
+						draw_arc(pn, 5.5, 0.0, TAU, 16, Color(0.25, 0.65, 0.25), 1.4)
+				continue
+			if not s.seen:
 				continue
 			var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
 			if s.opened:
@@ -181,12 +227,12 @@ class MiniOverlay:
 			else:
 				draw_circle(p, 3.0, Color(1.0, 0.82, 0.25))
 
-	func _arrow(pp: Vector2, f: float) -> void:
+	func _arrow(pp: Vector2, f: float, col := Color.WHITE) -> void:
 		var dirv := Vector2(-sin(f), -cos(f))
 		var side := dirv.orthogonal()
 		draw_colored_polygon(PackedVector2Array([
 			pp + dirv * 8.0, pp - dirv * 4.0 + side * 4.5, pp - dirv * 4.0 - side * 4.5]),
-			Color.WHITE)
+			col)
 
 
 ## Skyrim-style heading strip driven by the camera yaw.
@@ -241,9 +287,11 @@ class BigMap:
 	const ANNOT_RES := 512
 	var main: Node = null
 	var map_tex: Texture2D = null
+	var paper := false  ## notepad view: paper + trail + spots, no terrain
 	var annot_img: Image
 	var annot_tex: ImageTexture
-	var _last := Vector2(-1, -1)
+	var _last := Vector2(-9999, -9999)
+	var _content_xf := Transform2D()
 
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
@@ -267,8 +315,20 @@ class BigMap:
 	func _draw() -> void:
 		if main == null:
 			return
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.10, 0.08, 0.06, 0.97), true)
-		if map_tex:
+		var bgc := Color(0.88, 0.84, 0.72, 0.98) if paper else Color(0.10, 0.08, 0.06, 0.97)
+		draw_rect(Rect2(Vector2.ZERO, size), bgc, true)
+		# Without the compass the whole view rotates around you: facing = up.
+		var pp := Vector2.ZERO
+		var fy := 0.0
+		if main.player:
+			pp = _to_px(Vector2(main.player.global_position.x, main.player.global_position.z))
+			fy = main.player.cam_yaw
+		_content_xf = Transform2D()
+		if not main.tools.compass and main.player:
+			var rz := Transform2D(fy, Vector2.ZERO)
+			_content_xf = Transform2D(fy, size * 0.5 - rz * pp)
+		draw_set_transform_matrix(_content_xf)
+		if map_tex and not paper:
 			draw_texture_rect(map_tex, Rect2(Vector2.ZERO, size), false)
 		if annot_tex:
 			draw_texture_rect(annot_tex, Rect2(Vector2.ZERO, size), false)
@@ -280,9 +340,17 @@ class BigMap:
 				draw_polyline(pts, Color(0.45, 0.12, 0.08, 0.85), 2.0)
 			var sel: Interactable = main.selected_spot()
 			for s in main.structures:
-				if not is_instance_valid(s) or not s.seen:
+				if not is_instance_valid(s):
 					continue
 				var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
+				if paper:
+					if s.spotted:
+						draw_circle(p, 5.0, Color(0.25, 0.65, 0.25))
+						if s == sel:
+							draw_arc(p, 9.0, 0.0, TAU, 20, Color(0.25, 0.65, 0.25), 2.0)
+					continue
+				if not s.seen:
+					continue
 				if s.opened:
 					draw_circle(p, 4.0, Color(0.55, 0.55, 0.55, 0.8))
 				elif s.spotted:
@@ -291,35 +359,38 @@ class BigMap:
 						draw_arc(p, 9.0, 0.0, TAU, 20, Color(0.3, 0.95, 0.35), 2.0)
 				else:
 					draw_circle(p, 4.5, Color(1.0, 0.82, 0.25))
+		draw_set_transform_matrix(Transform2D())
 		if main.player:
-			var pp := _to_px(Vector2(main.player.global_position.x, main.player.global_position.z))
+			var mark_col := Color(0.35, 0.3, 0.25) if paper else Color.WHITE
 			if main.tools.compass:
-				var fy: float = main.player.cam_yaw
 				var dirv := Vector2(-sin(fy), -cos(fy))
 				var side := dirv.orthogonal()
 				draw_colored_polygon(PackedVector2Array([
 					pp + dirv * 12.0, pp - dirv * 6.0 + side * 7.0, pp - dirv * 6.0 - side * 7.0]),
-					Color.WHITE)
+					mark_col)
 			else:
-				draw_circle(pp, 6.0, Color.WHITE)
-				draw_circle(pp, 3.0, Color(0.2, 0.2, 0.2))
+				var c2 := size * 0.5
+				draw_colored_polygon(PackedVector2Array([
+					c2 + Vector2(0, -12), c2 + Vector2(-7, 6), c2 + Vector2(7, 6)]), mark_col)
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.85, 0.75, 0.5), false, 3.0)
-		var hint := "M — close"
+		var hint := ("N — close" if paper else "M — close")
 		if main.tools.pencil:
 			hint += " · left-drag draw"
 		if main.tools.eraser:
 			hint += " · right-drag erase"
 		var f := ThemeDB.fallback_font
+		var hint_col := Color(0.3, 0.25, 0.2) if paper else Color(1, 0.95, 0.8)
 		draw_string_outline(f, Vector2(12, size.y - 12), hint,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 5, Color(0, 0, 0, 0.9))
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 5,
+			Color(1, 1, 1, 0.6) if paper else Color(0, 0, 0, 0.9))
 		draw_string(f, Vector2(12, size.y - 12), hint,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, hint_col)
 
 	func _gui_input(event: InputEvent) -> void:
 		if main == null:
 			return
 		if event is InputEventMouseButton and not event.pressed:
-			_last = Vector2(-1, -1)
+			_last = Vector2(-9999, -9999)
 			return
 		var draw_btn := false
 		var erase_btn := false
@@ -328,7 +399,7 @@ class BigMap:
 			pos = event.position
 			draw_btn = event.button_index == MOUSE_BUTTON_LEFT
 			erase_btn = event.button_index == MOUSE_BUTTON_RIGHT
-			_last = Vector2(-1, -1)
+			_last = Vector2(-9999, -9999)
 		elif event is InputEventMouseMotion:
 			pos = event.position
 			draw_btn = (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0
@@ -340,10 +411,12 @@ class BigMap:
 		elif erase_btn and main.tools.eraser:
 			_stroke(pos, true)
 		else:
-			_last = Vector2(-1, -1)
+			_last = Vector2(-9999, -9999)
 
-	func _stroke(pos: Vector2, erase: bool) -> void:
-		var from := _last if _last.x >= 0.0 else pos
+	func _stroke(screen_pos: Vector2, erase: bool) -> void:
+		# Screen → map space (undo the facing rotation when active).
+		var pos := _content_xf.affine_inverse() * screen_pos
+		var from := _last if _last.x > -9000.0 else pos
 		var steps := maxi(int(from.distance_to(pos) / 2.0), 1)
 		for i in steps + 1:
 			var p := from.lerp(pos, float(i) / steps)
@@ -405,7 +478,7 @@ class SpyOverlay:
 
 func _ready() -> void:
 	var help := _label(14, Color(1, 1, 1, 0.75))
-	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Shift sprint · Space jump\nZ spyglass · M map · Tab cycle spots · F8 feedback · Esc deselect / menu"
+	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Shift sprint · Space jump\nZ spyglass · M map · N notepad · Tab cycle spots · F8 feedback · Esc deselect / menu"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(14, 8)
 	add_child(help)
@@ -439,22 +512,24 @@ func _ready() -> void:
 	stam_bg.add_child(stam_fill)
 	stam_bg.visible = false
 
-	# coffee: clickable once found, countdown while the buff runs
+	# coffee: clickable once found (bottom-center, under the character);
+	# while active the stamina bar becomes the glowing yellow countdown
 	coffee_btn = Button.new()
 	coffee_btn.text = "Drink coffee"
-	coffee_btn.custom_minimum_size = Vector2(160, 42)
-	coffee_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	coffee_btn.custom_minimum_size = Vector2(160, 38)
+	coffee_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	coffee_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	coffee_btn.position = Vector2(14, -58)
+	coffee_btn.position = Vector2(-80, -104)
 	coffee_btn.visible = false
 	coffee_btn.pressed.connect(func() -> void:
 		if main:
 			main.drink_coffee())
 	add_child(coffee_btn)
-	coffee_buff = _label(17, Color(0.9, 0.7, 0.4))
-	coffee_buff.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	coffee_buff.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	coffee_buff.position = Vector2(14, -44)
+	coffee_buff = _label(15, Color(1.0, 0.85, 0.35))
+	coffee_buff.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	coffee_buff.position = Vector2(-90, -72)
+	coffee_buff.size = Vector2(180, 18)
+	coffee_buff.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coffee_buff.visible = false
 	add_child(coffee_buff)
 
@@ -575,7 +650,11 @@ func _ready() -> void:
 	big_map = BigMap.new()
 	big_map.visible = false
 	add_child(big_map)
-	big_map.reset_annotations()
+	big_pad = BigMap.new()
+	big_pad.paper = true
+	big_pad.visible = false
+	add_child(big_pad)
+	clear_annotations()
 
 	banner = PanelContainer.new()
 	banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -652,7 +731,9 @@ func set_day_info(text: String) -> void:
 
 
 func set_stamina(v: float, locked: bool) -> void:
-	stam_bg.visible = v < 0.999
+	if main and main.coffee_active():
+		return  # _process owns the bar while caffeinated
+	stam_bg.visible = v < 0.999 or locked
 	stam_fill.size.x = 180.0 * v
 	if locked:
 		stam_fill.color = Color(0.85, 0.3, 0.25)

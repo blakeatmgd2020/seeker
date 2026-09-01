@@ -6,6 +6,7 @@ extends CanvasLayer
 ## (gitignored) — written for Claude to reference in future sessions.
 
 var main: Node = null
+var enabled := true
 var searches := 0
 var finds := 0
 var tools_found: Array[String] = []
@@ -21,9 +22,20 @@ var _prev_paused := false
 
 var _dim: ColorRect
 var _panel: PanelContainer
+var _notes_panel: PanelContainer
+var _notes_label: Label
 var _text: TextEdit
 var _cat_group := ButtonGroup.new()
 var _cat_buttons: Array[Button] = []
+
+
+func _show_notes() -> void:
+	if notes.is_empty():
+		_notes_label.text = "No notes yet this session."
+	else:
+		_notes_label.text = "\n".join(notes)
+	_panel.visible = false
+	_notes_panel.visible = true
 
 
 func _init() -> void:
@@ -67,17 +79,24 @@ func _ready() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
 
+	# Bug on its own row, the rest below.
+	var bug_row := HBoxContainer.new()
+	bug_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(bug_row)
 	var cats := HBoxContainer.new()
 	cats.alignment = BoxContainer.ALIGNMENT_CENTER
 	cats.add_theme_constant_override("separation", 8)
 	v.add_child(cats)
-	for c in ["Bug", "Feel", "Idea", "Balance"]:
+	for c in ["Bug", "General", "Interface", "Gameplay"]:
 		var b := Button.new()
 		b.text = c
 		b.toggle_mode = true
 		b.button_group = _cat_group
-		b.custom_minimum_size = Vector2(90, 32)
-		cats.add_child(b)
+		b.custom_minimum_size = Vector2(110, 34) if c == "Bug" else Vector2(105, 32)
+		if c == "Bug":
+			bug_row.add_child(b)
+		else:
+			cats.add_child(b)
 		_cat_buttons.append(b)
 
 	_text = TextEdit.new()
@@ -100,16 +119,53 @@ func _ready() -> void:
 	cancel.custom_minimum_size = Vector2(140, 34)
 	cancel.pressed.connect(close_form)
 	row.add_child(cancel)
+	var view := Button.new()
+	view.text = "View session notes"
+	view.custom_minimum_size = Vector2(180, 30)
+	view.pressed.connect(_show_notes)
+	v.add_child(view)
+
+	# Session-notes viewer.
+	_notes_panel = PanelContainer.new()
+	_notes_panel.visible = false
+	center.add_child(_notes_panel)
+	var nm := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		nm.add_theme_constant_override(side, 16)
+	_notes_panel.add_child(nm)
+	var nv := VBoxContainer.new()
+	nv.add_theme_constant_override("separation", 8)
+	nm.add_child(nv)
+	var nt := Label.new()
+	nt.text = "Session notes"
+	nt.add_theme_font_size_override("font_size", 20)
+	nt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nv.add_child(nt)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(560, 380)
+	nv.add_child(sc)
+	_notes_label = Label.new()
+	_notes_label.add_theme_font_size_override("font_size", 14)
+	_notes_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_notes_label.custom_minimum_size = Vector2(540, 0)
+	sc.add_child(_notes_label)
+	var back := Button.new()
+	back.text = "Back"
+	back.custom_minimum_size = Vector2(120, 32)
+	back.pressed.connect(func() -> void:
+		_notes_panel.visible = false
+		_panel.visible = true)
+	nv.add_child(back)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("feedback"):
-		if _panel.visible:
+		if _panel.visible or _notes_panel.visible:
 			close_form()
 		else:
 			open_form()
 		get_viewport().set_input_as_handled()
-	elif _panel.visible and event.is_action_pressed("ui_cancel"):
+	elif (_panel.visible or _notes_panel.visible) and event.is_action_pressed("ui_cancel"):
 		close_form()
 		get_viewport().set_input_as_handled()
 
@@ -120,16 +176,18 @@ func open_form() -> void:
 	if main and main.player:
 		main.player.release_drag()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	_cat_buttons[1].button_pressed = true
+	_cat_buttons[1].button_pressed = true  # default: General
 	_text.text = ""
 	_dim.visible = true
 	_panel.visible = true
+	_notes_panel.visible = false
 	_text.grab_focus()
 
 
 func close_form() -> void:
 	_dim.visible = false
 	_panel.visible = false
+	_notes_panel.visible = false
 	get_tree().paused = _prev_paused
 
 
@@ -205,6 +263,8 @@ func _context() -> String:
 
 
 func _flush() -> void:
+	if not enabled:
+		return
 	DirAccess.make_dir_recursive_absolute(_file_abs.get_base_dir())
 	var f := FileAccess.open(_file_abs, FileAccess.WRITE)
 	if f == null:

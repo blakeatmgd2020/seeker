@@ -9,6 +9,7 @@ var _frames := 0
 var _stage := 0
 var _walk_frames := 0
 var _walk_house: Node3D = null
+var _cave_body: Node3D = null
 var _fails: Array[String] = []
 
 
@@ -21,13 +22,13 @@ func _initialize() -> void:
 	root.add_child(scene.instantiate())
 
 
-## World signature for determinism checks: kinds, tool spots, village site.
+## World signature for determinism checks: kinds, tool spots, positions.
 func _sig(main) -> String:
 	var s := ""
 	for st in main.structures:
 		s += "%s:%s:%d,%d;" % [st.kind, st.tool_id,
 			int(st.position.x), int(st.position.z)]
-	return s + str(main.terrain.village_center)
+	return s + str(main.terrain.village_centers)
 
 
 func _tool_count(main) -> int:
@@ -59,6 +60,10 @@ func _process(_delta: float) -> bool:
 	var main = root.get_node_or_null("Main")
 	if _stage == 1:
 		return _walk_test_tick(main)
+	if _stage == 2:
+		return _cave_test_tick(main)
+	if _stage == 3:
+		return _cellar_test_tick(main)
 	var fails := _fails
 	if main == null or main.get_script() == null:
 		print("FAIL: Main node missing or script failed to compile")
@@ -73,10 +78,10 @@ func _process(_delta: float) -> bool:
 		quit(1)
 		return true
 
-	if main.structures.size() < 20 or main.structures.size() > 23:
-		fails.append("expected 20-23 structures, got %d" % main.structures.size())
+	if main.structures.size() < 20 or main.structures.size() > 26:
+		fails.append("expected 20-26 structures, got %d" % main.structures.size())
 	if main.world.get_node_or_null("Village") == null:
-		fails.append("village missing")
+		fails.append("village root missing")
 	# Underground nodes (cellar/cave) must actually be below the terrain.
 	for s in main.structures:
 		if s.display_name in ["cellar crate", "cave chest", "stashed crate", "buried urn"]:
@@ -111,8 +116,8 @@ func _process(_delta: float) -> bool:
 
 	# Day travel rebuilds a valid world.
 	main.load_day(3)
-	if main.structures.size() < 20 or main.structures.size() > 23:
-		fails.append("day 3: expected 20-23 structures, got %d" % main.structures.size())
+	if main.structures.size() < 20 or main.structures.size() > 26:
+		fails.append("day 3: expected 20-26 structures, got %d" % main.structures.size())
 
 	# Collecting a tool via search.
 	var tool_s: Interactable = null
@@ -257,8 +262,8 @@ func _process(_delta: float) -> bool:
 		if main.biome.id != b:
 			fails.append("biome override '%s' not applied" % b)
 			continue
-		if main.structures.size() < 20 or main.structures.size() > 23:
-			fails.append("%s: expected 20-23 structures, got %d" % [b, main.structures.size()])
+		if main.structures.size() < 20 or main.structures.size() > 26:
+			fails.append("%s: expected 20-26 structures, got %d" % [b, main.structures.size()])
 		if _tool_count(main) != 8:
 			fails.append("%s: expected 8 hidden items, got %d" % [b, _tool_count(main)])
 		if main.weather_name.is_empty():
@@ -268,15 +273,19 @@ func _process(_delta: float) -> bool:
 		_nest_check(main, fails, b + ": ")
 	main.debug_biome = ""
 
-	# Final stage: physically walk the player up the entry ramp into a house.
-	main.start_daily()
-	_walk_house = main.world.get_node("Village").get_node_or_null("House")
+	# Physically walk the player up the entry ramp into a house (worlds can
+	# have zero houses now, so hunt seeds until one appears).
+	_walk_house = null
+	for sv in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+		main.start_random(sv)
+		_walk_house = main.world.get_node("Village").get_node_or_null("House")
+		if _walk_house:
+			break
 	if _walk_house == null:
-		fails.append("no house found for walk-in test")
+		fails.append("no house found across 10 seeds for walk-in test")
 		return _finish(fails)
 	var pl = main.player
-	var start: Vector3 = _walk_house.global_transform * Vector3(0, 0.2, 5.5)
-	pl.global_position = start
+	pl.global_position = _walk_house.global_transform * Vector3(0, 0.2, 5.5)
 	pl.velocity = Vector3.ZERO
 	var dirw: Vector3 = _walk_house.global_transform.basis * Vector3(0, 0, -1)
 	pl.set_facing(atan2(-dirw.x, -dirw.z))
@@ -294,6 +303,76 @@ func _walk_test_tick(main) -> bool:
 	var lp: Vector3 = _walk_house.to_local(main.player.global_position)
 	if lp.z > 2.6 or lp.y < 0.35:
 		_fails.append("player could not walk into the house (local z=%.2f y=%.2f)" % [lp.z, lp.y])
+	# Next: walk down into a cave through its arch.
+	_cave_body = null
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88]:
+		main.start_random(sv)
+		_cave_body = main.world.get_node_or_null("Cave")
+		if _cave_body:
+			break
+	if _cave_body == null:
+		_fails.append("no cave found for walk-in test")
+		return _finish(_fails)
+	var pl = main.player
+	pl.global_position = _cave_body.global_transform * Vector3(0, 0.5, 5.0)
+	pl.velocity = Vector3.ZERO
+	var dirw: Vector3 = _cave_body.global_transform.basis * Vector3(0, 0, -1)
+	pl.set_facing(atan2(-dirw.x, -dirw.z))
+	Input.action_press("move_forward")
+	_stage = 2
+	_walk_frames = 0
+	return false
+
+
+func _cave_test_tick(main) -> bool:
+	_walk_frames += 1
+	if _walk_frames < 260:
+		return false
+	Input.action_release("move_forward")
+	var depth: float = main.player.global_position.y - _cave_body.global_position.y
+	if depth > -3.0:
+		_fails.append("player could not descend into the cave (depth %.2f)" % depth)
+	# Finally: walk down a barn cellar stairwell.
+	var barn: Node3D = null
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17]:
+		main.start_random(sv)
+		var crate: Interactable = null
+		for s in main.structures:
+			if s.display_name == "cellar crate":
+				crate = s
+		if crate == null:
+			continue
+		var village: Node3D = main.world.get_node("Village")
+		for ch in village.get_children():
+			if String(ch.name).contains("Barn") \
+					and ch.global_position.distance_to(crate.global_position) < 12.0:
+				barn = ch
+				break
+		if barn:
+			break
+	if barn == null:
+		_fails.append("no cellar barn found for walk-in test")
+		return _finish(_fails)
+	var pl = main.player
+	pl.global_position = barn.global_transform * Vector3(0.4, 0.7, -2.9)
+	pl.velocity = Vector3.ZERO
+	var dirw: Vector3 = barn.global_transform.basis * Vector3(1, 0, 0)
+	pl.set_facing(atan2(-dirw.x, -dirw.z))
+	Input.action_press("move_forward")
+	_walk_house = barn
+	_stage = 3
+	_walk_frames = 0
+	return false
+
+
+func _cellar_test_tick(main) -> bool:
+	_walk_frames += 1
+	if _walk_frames < 200:
+		return false
+	Input.action_release("move_forward")
+	var depth: float = main.player.global_position.y - _walk_house.global_position.y
+	if depth > -2.0:
+		_fails.append("player could not descend into the cellar (depth %.2f)" % depth)
 	return _finish(_fails)
 
 

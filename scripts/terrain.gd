@@ -7,8 +7,6 @@ extends StaticBody3D
 
 const SIZE := 500.0
 const RES := 200
-const VILLAGE_FLAT_R := 30.0
-const VILLAGE_BLEND_R := 60.0
 
 const SHADER_CODE := "
 shader_type spatial;
@@ -18,7 +16,8 @@ uniform sampler2D rock_tex : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D mask_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D nrm_tex : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform float water_y = -10.0;
-uniform vec2 village_c = vec2(0.0);
+uniform int plaza_count = 0;
+uniform vec2 plazas[8];
 varying vec3 wpos;
 varying float wny;
 
@@ -39,7 +38,11 @@ void fragment() {
 	float rock_w = smoothstep(0.30, 0.45, slope);
 	float dirt_w = smoothstep(0.58, 0.72, mask) * (1.0 - rock_w);
 	float shore = smoothstep(water_y + 2.2, water_y + 0.7, wpos.y);
-	float plaza = smoothstep(26.0, 14.0, length(wpos.xz - village_c)) * 0.75;
+	float plaza = 0.0;
+	for (int i = 0; i < plaza_count; i++) {
+		plaza = max(plaza, smoothstep(24.0, 12.0, length(wpos.xz - plazas[i])));
+	}
+	plaza *= 0.75;
 	dirt_w = max(dirt_w, max(shore, plaza) * (1.0 - rock_w));
 	vec3 alb = mix(mix(g, d, dirt_w), r, rock_w);
 	ALBEDO = alb;
@@ -55,13 +58,13 @@ var macro := FastNoiseLite.new()
 var biome: Dictionary = {}
 var amp := 20.0
 var macro_amp := 14.0
-var village_center := Vector2.ZERO
-var village_h := 0.0
+var village_centers: Array[Vector2] = []
 var water_y := -100.0
 var min_h := 1e9
 var max_h := -1e9
 var top_spot := Vector3.ZERO
 var patches: Array = []  # {p: Vector2, rf: float, rb: float, h: float}
+var holes: Array = []    # {c: Vector2, half: Vector2, rot: float}
 
 
 func _init() -> void:
@@ -82,15 +85,39 @@ func setup(wrng: RandomNumberGenerator, biome_def: Dictionary) -> void:
 	macro_amp = 14.0 * biome.terrain.amp_scale
 	noise.seed = wrng.randi()
 	macro.seed = wrng.randi()
-	var a := wrng.randf_range(0.0, TAU)
-	village_center = Vector2(cos(a), sin(a)) * wrng.randf_range(0.0, 70.0)
+	village_centers.clear()
+	patches.clear()
+	holes.clear()
 	_analyze()
+
+
+func min_village_dist(p: Vector2) -> float:
+	var best := 1e9
+	for c in village_centers:
+		best = minf(best, p.distance_to(c))
+	return best
 
 
 ## Registers a carved flat patch (terrace / foundation cut). Call between
 ## setup() and build().
 func add_flat_patch(p: Vector2, r_flat: float, r_blend: float, h: float) -> void:
 	patches.append({p = p, rf = r_flat, rb = r_blend, h = h})
+
+
+## Cuts a hole in the terrain mesh (a rotated rect, e.g. under a stairwell
+## or cave shaft) so descending passages actually open. Every grid quad
+## touching the rect is removed, so the covering geometry must overhang by
+## at least one grid cell (~2.5 m).
+func add_hole_rect(c: Vector2, half: Vector2, rot: float) -> void:
+	holes.append({c = c, half = half, rot = rot})
+
+
+func _in_hole(x: float, z: float) -> bool:
+	for h in holes:
+		var lp: Vector2 = (Vector2(x, z) - h.c).rotated(h.rot)
+		if absf(lp.x) < h.half.x + 1.8 and absf(lp.y) < h.half.y + 1.8:
+			return true
+	return false
 
 
 func raw_h(x: float, z: float) -> float:
@@ -109,15 +136,10 @@ func _analyze() -> void:
 			var z := -SIZE * 0.5 + j * step
 			raw_min = minf(raw_min, raw_h(x, z))
 	water_y = raw_min + 3.0 + biome.terrain.water_offset
-	village_h = maxf(raw_h(village_center.x, village_center.y), water_y + 5.0)
 
 
 func height_at(x: float, z: float) -> float:
 	var h := raw_h(x, z)
-	var d := (Vector2(x, z) - village_center).length()
-	var t := clampf((d - VILLAGE_FLAT_R) / (VILLAGE_BLEND_R - VILLAGE_FLAT_R), 0.0, 1.0)
-	t = t * t * (3.0 - 2.0 * t)
-	h = lerpf(village_h, h, t)
 	for pa in patches:
 		var pd: float = (Vector2(x, z) - pa.p).length()
 		if pd < pa.rb:
@@ -171,7 +193,7 @@ func build() -> void:
 			max_h = maxf(max_h, h)
 			var d := Vector2(x, z).length()
 			if d > 100.0 and d < 190.0 and h > best \
-					and (Vector2(x, z) - village_center).length() > 50.0:
+					and min_village_dist(Vector2(x, z)) > 45.0:
 				best = h
 				top_spot = Vector3(x, h, z)
 
@@ -188,18 +210,19 @@ func build() -> void:
 			norms[idx] = Vector3(hl - hr, 2.0 * step, hd - hu).normalized()
 
 	var idxs := PackedInt32Array()
-	idxs.resize(RES * RES * 6)
-	var k := 0
 	for j in RES:
 		for i in RES:
+			if not holes.is_empty():
+				var qx := -SIZE * 0.5 + (i + 0.5) * step
+				var qz := -SIZE * 0.5 + (j + 0.5) * step
+				if _in_hole(qx, qz):
+					continue
 			var a := j * n + i
 			var b := a + 1
 			var c := a + n
 			var d2 := c + 1
 			# Godot front faces wind clockwise; this order faces the tris upward.
-			idxs[k] = a; idxs[k + 1] = b; idxs[k + 2] = c
-			idxs[k + 3] = b; idxs[k + 4] = d2; idxs[k + 5] = c
-			k += 6
+			idxs.append_array(PackedInt32Array([a, b, c, b, d2, c]))
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -224,7 +247,14 @@ func build() -> void:
 	mat.set_shader_parameter("mask_tex", TexF.noise_tex("mask", 104, 0.04, [], []))
 	mat.set_shader_parameter("nrm_tex", TexF.normal_tex())
 	mat.set_shader_parameter("water_y", water_y)
-	mat.set_shader_parameter("village_c", village_center)
+	var plaza_arr := PackedVector2Array()
+	for c in village_centers:
+		if plaza_arr.size() < 8:
+			plaza_arr.append(c)
+	while plaza_arr.size() < 8:
+		plaza_arr.append(Vector2(9999, 9999))
+	mat.set_shader_parameter("plaza_count", mini(village_centers.size(), 8))
+	mat.set_shader_parameter("plazas", plaza_arr)
 	mesh.surface_set_material(0, mat)
 
 	var mi := MeshInstance3D.new()
@@ -254,7 +284,7 @@ func make_map_texture(res := 128) -> ImageTexture:
 				c = pal.low.lerp(pal.high, t)
 				if t > 0.62:
 					c = c.lerp(pal.rock, clampf((t - 0.62) / 0.25, 0.0, 1.0))
-				if (Vector2(x, z) - village_center).length() < 26.0:
+				if min_village_dist(Vector2(x, z)) < 24.0:
 					c = c.lerp(pal.plaza, 0.6)
 			img.set_pixel(px, py, c)
 	return ImageTexture.create_from_image(img)

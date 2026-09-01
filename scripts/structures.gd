@@ -345,6 +345,39 @@ static func _campfire(s: Interactable) -> void:
 	s.sink_shapes = [cs]
 	s.item_anchor = Vector3(0, 0.35, 0)
 	s.ring_radius = 1.0
+	# Lazy smoke column rising from the ashes until it's searched.
+	var smoke := GPUParticles3D.new()
+	smoke.amount = 26
+	smoke.lifetime = 5.0
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 5.0
+	pm.initial_velocity_min = 0.5
+	pm.initial_velocity_max = 0.9
+	pm.gravity = Vector3(0, 0.25, 0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.3
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.25, 1.0])
+	grad.colors = PackedColorArray([Color(0.55, 0.54, 0.52, 0.0),
+		Color(0.55, 0.54, 0.52, 0.5), Color(0.62, 0.62, 0.62, 0.0)])
+	var gt := GradientTexture1D.new()
+	gt.gradient = grad
+	pm.color_ramp = gt
+	smoke.process_material = pm
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.55, 0.55)
+	var smat := StandardMaterial3D.new()
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.vertex_color_use_as_albedo = true
+	smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	qm.material = smat
+	smoke.draw_pass_1 = qm
+	smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	smoke.position = Vector3(0, 0.4, 0)
+	s.add_child(smoke)
+	s.extinguish_node = smoke
 
 
 static func _scarecrow(s: Interactable) -> void:

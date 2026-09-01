@@ -39,6 +39,7 @@ var dist_walked := 0.0
 var stamina := 1.0
 var climbing := false
 var _stamina_locked := false
+var _lock_until_ms := 0
 var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
 var _lmb := false
@@ -133,6 +134,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_map"):
 		if hud:
 			hud.toggle_big_map()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("toggle_pad"):
+		if hud:
+			hud.toggle_big_pad()
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseButton:
@@ -285,13 +291,17 @@ func _physics_process(delta: float) -> void:
 	if sprinting and not caffeinated:
 		stamina = maxf(stamina - delta / SPRINT_SECONDS, 0.0)
 		_regen_delay = 1.0
-		if stamina <= 0.0:
+		if stamina <= 0.0 and not _stamina_locked:
+			# Full depletion: one-minute penalty before sprinting again.
 			_stamina_locked = true
+			_lock_until_ms = Time.get_ticks_msec() + 60000
+			if hud:
+				hud.toast("Winded! Sprint needs a minute to recover.")
 	else:
 		_regen_delay -= delta
 		if _regen_delay <= 0.0:
 			stamina = minf(stamina + delta / STAMINA_REGEN, 1.0)
-	if _stamina_locked and stamina > 0.3:
+	if _stamina_locked and Time.get_ticks_msec() >= _lock_until_ms:
 		_stamina_locked = false
 	if hud:
 		hud.set_stamina(stamina, _stamina_locked)
@@ -374,8 +384,8 @@ func _near_climbable() -> Dictionary:
 func _update_discovery(spy: bool) -> void:
 	if main == null:
 		return
-	# Pencil + map: ink the path as we walk.
-	if main.tools.pencil and main.tools.map:
+	# Pencil + a writing surface (map or notepad): ink the path as we walk.
+	if main.can_note_spots():
 		main.record_trail(Vector2(global_position.x, global_position.z))
 
 	var spots: Array = []

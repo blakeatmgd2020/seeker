@@ -18,6 +18,8 @@ static func build(parent: Node3D, terrain: Terrain, wrng: RandomNumberGenerator,
 	var stone := TexF.mat("stone")
 
 	# Entrance mound: a ring of boulders with a gap at the doorway (+Z).
+	# Ring rocks are solid; the cap rock over the shaft stays intangible so
+	# its collider can't intrude into the stairway below it.
 	for r in [[-2.9, 0.8, 1.6, 2.6], [2.9, 0.8, 1.6, 2.6], [-2.2, 0.9, -2.4, 2.8],
 			[2.2, 0.9, -2.4, 2.8], [0.0, 1.6, -1.2, 3.4], [0.0, 0.7, -3.4, 2.2]]:
 		var rock := SphereMesh.new()
@@ -28,21 +30,39 @@ static func build(parent: Node3D, terrain: Terrain, wrng: RandomNumberGenerator,
 		rock.material = stone
 		var mi := Util.mesh(b, rock, Vector3(r[0], r[1] * 0.6, r[2]))
 		mi.scale = Vector3(1.3, 0.9, 1.2)
+		if absf(r[0]) > 1.5:
+			var cs := CollisionShape3D.new()
+			var sh := SphereShape3D.new()
+			sh.radius = r[3] * 0.55
+			cs.shape = sh
+			cs.position = Vector3(r[0], r[1] * 0.6, r[2])
+			b.add_child(cs)
+	# A small lantern marks the way in.
+	Util.box(b, Vector3(0.18, 0.28, 0.18), Vector3(1.05, 2.05, 3.55), TexF.mat("metal"), false)
+	var el := OmniLight3D.new()
+	el.position = Vector3(1.05, 2.0, 3.6)
+	el.light_color = Color(1.0, 0.8, 0.45)
+	el.omni_range = 6.0
+	el.light_energy = 1.3
+	b.add_child(el)
 	# Arch pillars and lintel.
 	Util.box(b, Vector3(0.6, 2.4, 0.6), Vector3(-1.3, 1.2, 3.3), stone)
 	Util.box(b, Vector3(0.6, 2.4, 0.6), Vector3(1.3, 1.2, 3.3), stone)
 	Util.box(b, Vector3(3.2, 0.7, 0.8), Vector3(0, 2.6, 3.3), stone)
 
-	# Shaft: ramp descending from the doorway (z +3.2, y 0) into the
-	# chamber (z -2.4, y -4.4), with sealed sides and a sloped ceiling.
-	Util.shape_box(b, Vector3(2.3, 0.2, 7.4), Vector3(0, -2.2, 0.4), Vector3(-38.2, 0, 0))
+	# Shaft: ramp descending from the doorway (z +3.2) into the chamber,
+	# flanked by solid stone masses wide enough to cover the terrain hole's
+	# ragged edges, with a sloped ceiling and ground aprons front and rear.
+	Util.shape_box(b, Vector3(2.3, 0.2, 7.4), Vector3(0, -2.37, 0.4), Vector3(-38.2, 0, 0))
 	for i in 8:
 		var t := (i + 0.5) / 8.0
 		Util.box(b, Vector3(2.2, 0.22, 0.8),
-			Vector3(0, -4.4 * t + 0.05, 3.2 - 5.6 * t), stone, false)
-	Util.box(b, Vector3(0.35, 7.6, 6.6), Vector3(-1.35, -1.2, 0.4), stone)
-	Util.box(b, Vector3(0.35, 7.6, 6.6), Vector3(1.35, -1.2, 0.4), stone)
+			Vector3(0, -4.5 * t + 0.0, 3.2 - 5.6 * t), stone, false)
+	Util.box(b, Vector3(2.5, 7.4, 8.2), Vector3(-2.4, -1.1, 0.3), stone)
+	Util.box(b, Vector3(2.5, 7.4, 8.2), Vector3(2.4, -1.1, 0.3), stone)
 	Util.box(b, Vector3(3.0, 0.35, 7.2), Vector3(0, 0.55, 0.4), stone, true, Vector3(-38.2, 0, 0))
+	Util.box(b, Vector3(6.6, 0.35, 2.4), Vector3(0, -0.14, -4.4), stone)
+	Util.box(b, Vector3(6.6, 0.3, 3.8), Vector3(0, -0.15, 5.1), stone)
 
 	# Chamber: x -4..4, z -8.6..-2.3, floor -4.4, ceiling -1.7.
 	Util.box(b, Vector3(8.9, 0.35, 7.0), Vector3(0, -4.6, -5.5), stone)

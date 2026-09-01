@@ -5,25 +5,50 @@ class_name Village
 ## and returns the structure specs inside them.
 
 
-static func layout(terrain: Terrain, wrng: RandomNumberGenerator, biome: Dictionary) -> Dictionary:
-	var vc := terrain.village_center
-	var placed: Array[Vector2] = []
+## Lays out every village. `vils` is [{c: Vector2, n: buildings, rf: radius}].
+## Some buildings hold nodes, most may be empty; barns can roll cellars.
+static func layout(terrain: Terrain, wrng: RandomNumberGenerator, biome: Dictionary,
+		vils: Array) -> Dictionary:
 	var buildings: Array = []
-	for i in wrng.randi_range(3, 4):
-		var p := _spot(wrng, vc, placed, 9.0, 24.0, 12.0)
-		buildings.append({kind = "house", pos = p, yaw = wrng.randf_range(0.0, 360.0)})
-	var bp := _spot(wrng, vc, placed, 12.0, 26.0, 14.0)
-	buildings.append({kind = "barn", pos = bp, yaw = wrng.randf_range(0.0, 360.0)})
-
 	var loose: Array = []
-	var lpts: Array[Vector2] = []
-	for l in biome.village_loose:
-		for i in wrng.randi_range(l[2], l[3]):
-			var p := _loose_spot(wrng, vc, placed, lpts)
-			loose.append({kind = l[0], display = l[1], x = p.x, z = p.y})
-			lpts.append(p)
-	return {buildings = buildings, well = vc, loose = loose,
-		basement = wrng.randf() < 0.6}
+	var wells: Array = []
+	for vd in vils:
+		var placed: Array[Vector2] = []
+		wells.append(vd.c)
+		for bi in vd.n:
+			var p := _spot(wrng, vd.c, placed, 6.0, maxf(vd.rf - 3.0, 8.0), 11.0)
+			var kind := "barn" if wrng.randf() < 0.25 else "house"
+			buildings.append({kind = kind, pos = p, yaw = wrng.randf_range(0.0, 360.0),
+				node = false, basement = false})
+		var lpts: Array[Vector2] = []
+		for i in wrng.randi_range(0, 2):
+			if loose.size() >= 6:
+				break
+			var row: Array = biome.village_loose[
+				wrng.randi_range(0, biome.village_loose.size() - 1)]
+			var lp := _loose_spot(wrng, vd.c, placed, lpts)
+			loose.append({kind = row[0], display = row[1], x = lp.x, z = lp.y})
+			lpts.append(lp)
+	# Choose which buildings hold nodes — empty buildings are fine.
+	var idxs: Array = range(buildings.size())
+	for i in range(idxs.size() - 1, 0, -1):
+		var j := wrng.randi_range(0, i)
+		var tmp = idxs[i]
+		idxs[i] = idxs[j]
+		idxs[j] = tmp
+	var max_nodes := clampi(buildings.size(), 0, 8)
+	var node_n := 0
+	if max_nodes > 0:
+		node_n = wrng.randi_range(1, max_nodes)
+	for k in node_n:
+		buildings[idxs[k]].node = true
+	# Cellars: up to two barns dig down.
+	var cellars := 0
+	for b in buildings:
+		if b.kind == "barn" and cellars < 2 and wrng.randf() < 0.4:
+			b.basement = true
+			cellars += 1
+	return {buildings = buildings, wells = wells, loose = loose}
 
 
 static func construct(parent: Node3D, terrain: Terrain, lay: Dictionary,
@@ -37,16 +62,19 @@ static func construct(parent: Node3D, terrain: Terrain, lay: Dictionary,
 	for b in lay.buildings:
 		if b.kind == "house":
 			var ward_xf := _house(root, terrain, b.pos, b.yaw, style)
-			specs.append({kind = "wardrobe", display = "wardrobe", xform = ward_xf})
+			if b.node:
+				specs.append({kind = "wardrobe", display = "wardrobe", xform = ward_xf})
 			excl.append(Vector3(b.pos.x, b.pos.y, 9.0))
 		else:
-			var res := _barn(root, terrain, b.pos, b.yaw, style, lay.basement)
-			specs.append({kind = "chest", display = "old chest", xform = res.chest})
+			var res := _barn(root, terrain, b.pos, b.yaw, style, b.basement)
+			if b.node:
+				specs.append({kind = "chest", display = "old chest", xform = res.chest})
 			if res.has("cellar"):
 				specs.append({kind = "crate", display = "cellar crate", xform = res.cellar})
 			excl.append(Vector3(b.pos.x, b.pos.y, 10.0))
-	_well(root, terrain, lay.well, style)
-	excl.append(Vector3(lay.well.x, lay.well.y, 3.0))
+	for wc in lay.wells:
+		_well(root, terrain, wc, style)
+		excl.append(Vector3(wc.x, wc.y, 3.0))
 	specs += lay.loose
 	return {specs = specs, exclusions = excl}
 
@@ -292,6 +320,9 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		# Stairwell shaft sides sealing floor-to-ceiling gap.
 		Util.box(b, Vector3(4.6, 2.0, 0.3), Vector3(2.85, -0.15, -3.65), stone)
 		Util.box(b, Vector3(4.6, 2.0, 0.3), Vector3(2.85, -0.15, -2.15), stone)
+		# Ground aprons covering the terrain hole's edges outside the barn.
+		Util.box(b, Vector3(3.0, 0.3, 6.4), Vector3(6.5, -0.15, -2.6), stone)
+		Util.box(b, Vector3(8.4, 0.3, 2.0), Vector3(3.0, -0.15, -5.2), stone)
 		# Stairs down (visual steps + invisible ramp).
 		for i in 6:
 			var sx := 1.2 + i * 0.62

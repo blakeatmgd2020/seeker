@@ -7,6 +7,39 @@ extends Node3D
 ## terraces and foundation cuts can be carved into the heightfield, and only
 ## then is the terrain mesh built — structures rest in the land, not on it.
 
+const WATER_SHADER := "
+shader_type spatial;
+uniform vec4 base_col : source_color = vec4(0.12, 0.34, 0.44, 0.62);
+uniform float wind_amt = 0.15;
+uniform vec3 player_pos = vec3(0.0);
+uniform float wake = 0.0;
+varying vec3 wpos;
+
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+	vec2 uv = wpos.xz;
+	float t = TIME;
+	float amp = 0.3 + wind_amt * 1.6;
+	float w1 = sin(uv.x * 0.35 + t * (0.8 + wind_amt * 2.5))
+		+ sin((uv.x + uv.y) * 0.21 - t * (0.6 + wind_amt * 1.8));
+	float w2 = sin(uv.y * 0.4 - t * (0.7 + wind_amt * 2.2))
+		+ sin((uv.y - uv.x) * 0.17 + t * 0.5);
+	float d = distance(uv, player_pos.xz);
+	float ring = cos(d * 9.0 - t * 7.0) * exp(-d * 0.7) * wake * 6.0;
+	vec3 nm = normalize(vec3((w1 * amp + ring) * 0.09, (w2 * amp + ring) * 0.09, 1.0));
+	NORMAL_MAP = nm * 0.5 + 0.5;
+	NORMAL_MAP_DEPTH = 1.0;
+	ALBEDO = base_col.rgb;
+	ALPHA = base_col.a;
+	ROUGHNESS = 0.05;
+	METALLIC = 0.35;
+	SPECULAR = 0.7;
+}
+"
+
 const WEEKDAYS := ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTHS := ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const STRUCTURE_TOTAL := 20
@@ -43,12 +76,48 @@ var _env: Environment
 var _sky_mat: ProceduralSkyMaterial
 var _sun: DirectionalLight3D
 var _weather_node: GPUParticles3D = null
+var _water_mat: ShaderMaterial = null
+var _wake := 0.0
+var _cur_vils: Array = []
+
+
+func _roll_village_count(wrng: RandomNumberGenerator) -> int:
+	# 0..6 villages, weighted: none is uncommon, sprawls are rare.
+	var weights := [10, 30, 25, 15, 10, 6, 4]
+	var total := 0
+	for w in weights:
+		total += w
+	var pick := wrng.randi_range(1, total)
+	for i in weights.size():
+		pick -= weights[i]
+		if pick <= 0:
+			return i
+	return 1
+
+
+func _village_clear(p: Vector2, margin: float) -> bool:
+	for vd in _cur_vils:
+		if p.distance_to(vd.c) < vd.rf + margin:
+			return false
+	return true
+
+
+func _process(delta: float) -> void:
+	if _water_mat == null or player == null or terrain == null:
+		return
+	var in_water: bool = world != null \
+		and player.global_position.y < terrain.water_y + 0.6 \
+		and Vector2(player.velocity.x, player.velocity.z).length() > 1.2
+	_wake = move_toward(_wake, 1.0 if in_water else 0.0, delta * 3.0)
+	_water_mat.set_shader_parameter("player_pos", player.global_position)
+	_water_mat.set_shader_parameter("wake", _wake)
 
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--biome="):
 			debug_biome = a.substr(8)
+	var is_shot := OS.get_cmdline_user_args().has("--shot")
 	_setup_input()
 	_setup_environment()
 	player = Player.new()
@@ -66,12 +135,13 @@ func _ready() -> void:
 	add_child(title)
 	feedback = Feedback.new()
 	feedback.main = self
+	feedback.enabled = not is_shot
 	add_child(feedback)
 	player.process_mode = Node.PROCESS_MODE_DISABLED
 	player.visible = false
 	hud.visible = false
 	title.refresh()
-	if OS.get_cmdline_user_args().has("--shot"):
+	if is_shot:
 		_shot_routine()
 
 
@@ -216,19 +286,48 @@ func _build_world() -> void:
 	world.add_child(terrain)
 	terrain.setup(wrng, biome)
 
+	# Villages: 0-6 per map, 1-12 buildings each (biased small). Each village
+	# flattens its own plateau via the patch system.
+	_cur_vils.clear()
+	var nvil := _roll_village_count(wrng)
+	for i in nvil:
+		for attempt in 50:
+			var c := Vector2(wrng.randf_range(-130.0, 130.0), wrng.randf_range(-130.0, 130.0))
+			var ok := terrain.raw_h(c.x, c.y) > terrain.water_y + 3.0
+			for vd in _cur_vils:
+				if c.distance_to(vd.c) < 68.0:
+					ok = false
+					break
+			if not ok:
+				continue
+			var n := 1 + int(pow(wrng.randf(), 1.6) * 11.99)
+			var rf := clampf(10.0 + n * 1.6, 12.0, 30.0)
+			terrain.add_flat_patch(c, rf, rf + 22.0,
+				maxf(terrain.raw_h(c.x, c.y), terrain.water_y + 4.5))
+			terrain.village_centers.append(c)
+			_cur_vils.append({c = c, n = n, rf = rf})
+			break
+
 	# Layout pass: decide every position, carve foundations and terraces.
-	var lay := Village.layout(terrain, wrng, biome)
+	var lay := Village.layout(terrain, wrng, biome, _cur_vils)
 	for b in lay.buildings:
 		var rf := 6.5 if b.kind == "house" else 7.5
 		var p: Vector2 = b.pos
 		terrain.add_flat_patch(p, rf, rf + 3.5,
 			terrain.height_at(p.x, p.y) - terrain.drop_under(p, rf * 0.7) * 0.35)
-	terrain.add_flat_patch(lay.well, 2.2, 4.0,
-		terrain.height_at(lay.well.x, lay.well.y))
-	var village_count: int = lay.buildings.size() + lay.loose.size()
-	if lay.basement:
-		village_count += 1
-	var wild := _wild_layout(wrng, STRUCTURE_TOTAL - village_count)
+		if b.basement:
+			# Open the terrain under the cellar stairwell.
+			var yaw_r: float = deg_to_rad(b.yaw)
+			terrain.add_hole_rect(p + Vector2(2.8, -2.9).rotated(-yaw_r),
+				Vector2(2.2, 0.7), yaw_r)
+	for wc in lay.wells:
+		terrain.add_flat_patch(wc, 2.2, 4.0, terrain.height_at(wc.x, wc.y))
+	var vnodes := 0
+	for b in lay.buildings:
+		if b.node:
+			vnodes += 1
+	var village_count: int = vnodes + lay.loose.size()
+	var wild := _wild_layout(wrng, clampi(STRUCTURE_TOTAL - village_count, 8, STRUCTURE_TOTAL))
 
 	# Maybe a cave out in the wilds (extra nodes beyond the surface count).
 	var cave_pos := Vector2.ZERO
@@ -241,7 +340,7 @@ func _build_world() -> void:
 			var p := Vector2(cos(a) * r, sin(a) * r)
 			if absf(p.x) > 218.0 or absf(p.y) > 218.0:
 				continue
-			if (p - terrain.village_center).length() < 50.0:
+			if not _village_clear(p, 14.0):
 				continue
 			if terrain.height_at(p.x, p.y) < terrain.water_y + 2.0:
 				continue
@@ -261,6 +360,9 @@ func _build_world() -> void:
 			# behind the mound (local -Z), so shift the patch that way.
 			var back := Vector2(sin(cave_yaw), cos(cave_yaw)) * -3.0
 			terrain.add_flat_patch(p + back, 8.5, 12.5, terrain.height_at(p.x, p.y))
+			# Open the terrain over the descending shaft.
+			terrain.add_hole_rect(p + Vector2(0.0, 0.35).rotated(-cave_yaw),
+				Vector2(1.3, 3.6), cave_yaw)
 			break
 
 	terrain.build()
@@ -284,6 +386,8 @@ func _build_world() -> void:
 	_place_player(wrng)
 
 	var exclusions: Array = village.exclusions
+	for vd in _cur_vils:
+		exclusions.append(Vector3(vd.c.x, vd.c.y, vd.rf + 6.0))
 	for s in structures:
 		exclusions.append(Vector3(s.position.x, s.position.z, 6.0))
 	if has_cave:
@@ -362,7 +466,7 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 			var p := Vector2(cos(a) * r, sin(a) * r)
 			if absf(p.x) > 228.0 or absf(p.y) > 228.0:
 				continue
-			if (p - terrain.village_center).length() < 45.0:
+			if not _village_clear(p, 10.0):
 				continue
 			if terrain.height_at(p.x, p.y) < terrain.water_y + 1.2:
 				continue
@@ -472,6 +576,13 @@ func _apply_weather(wrng: RandomNumberGenerator) -> void:
 				Vector3(cos(a), -0.15, sin(a)), 22.0, Vector3(0, -2, 0))
 			_env.fog_density += 0.0015
 			_sun.light_energy *= 0.9
+	if _water_mat:
+		var wind_amt := 0.15
+		if weather_id == "wind":
+			wind_amt = 0.95
+		elif weather_id == "rain":
+			wind_amt = 0.45
+		_water_mat.set_shader_parameter("wind_amt", wind_amt)
 
 
 func _precip(amount: int, life: float, size: Vector2, color: Color, dir: Vector3,
@@ -504,7 +615,9 @@ func _precip(amount: int, life: float, size: Vector2, color: Color, dir: Vector3
 
 
 func _place_player(wrng: RandomNumberGenerator) -> void:
-	var vc := terrain.village_center
+	var vc := Vector2.ZERO
+	if not _cur_vils.is_empty():
+		vc = _cur_vils[wrng.randi_range(0, _cur_vils.size() - 1)].c
 	var pos := Vector3(vc.x, 0.0, vc.y + 34.0)
 	for i in 60:
 		var a := wrng.randf_range(0.0, TAU)
@@ -521,6 +634,8 @@ func _place_player(wrng: RandomNumberGenerator) -> void:
 	player.position = pos
 	player.velocity = Vector3.ZERO
 	var to_v := Vector2(vc.x - pos.x, vc.y - pos.z)
+	if to_v.length() < 1.0:
+		to_v = Vector2(0, -1)
 	player.set_facing(atan2(-to_v.x, -to_v.y))
 
 
@@ -651,7 +766,8 @@ func _setup_input() -> void:
 	var binds := [["move_forward", KEY_W], ["move_back", KEY_S],
 		["move_left", KEY_A], ["move_right", KEY_D], ["jump", KEY_SPACE],
 		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z],
-		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M], ["feedback", KEY_F8]]
+		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M], ["toggle_pad", KEY_N],
+		["feedback", KEY_F8]]
 	for b in binds:
 		if InputMap.has_action(b[0]):
 			continue
@@ -687,7 +803,19 @@ func _setup_environment() -> void:
 func _add_water() -> void:
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(496, 496)
-	pm.material = TexF.mat(biome.terrain.water_mat)
+	if biome.terrain.water_mat == "ice":
+		pm.material = TexF.mat("ice")
+		_water_mat = null
+	else:
+		var sh := Shader.new()
+		sh.code = WATER_SHADER
+		_water_mat = ShaderMaterial.new()
+		_water_mat.shader = sh
+		var col := Color(0.12, 0.34, 0.44, 0.62)
+		if biome.terrain.water_mat == "oasis":
+			col = Color(0.14, 0.42, 0.40, 0.66)
+		_water_mat.set_shader_parameter("base_col", col)
+		pm.material = _water_mat
 	var mi := MeshInstance3D.new()
 	mi.mesh = pm
 	mi.position = Vector3(0, terrain.water_y, 0)
@@ -771,12 +899,15 @@ func _shot_routine() -> void:
 	await get_tree().create_timer(1.2).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_spy.png"))
 	Input.action_release("spyglass")
-	var vc := terrain.village_center
+	var vc := Vector2(player.global_position.x, player.global_position.z)
+	if not _cur_vils.is_empty():
+		vc = _cur_vils[0].c
+	var vh := terrain.height_at(vc.x, vc.y)
 	var cam := Camera3D.new()
 	add_child(cam)
 	cam.far = 1200.0
-	cam.position = Vector3(vc.x + 70, terrain.village_h + 55, vc.y + 95)
-	cam.look_at(Vector3(vc.x, terrain.village_h, vc.y))
+	cam.position = Vector3(vc.x + 70, vh + 55, vc.y + 95)
+	cam.look_at(Vector3(vc.x, vh, vc.y))
 	cam.current = true
 	await get_tree().create_timer(0.8).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_aerial.png"))
