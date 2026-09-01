@@ -129,10 +129,13 @@ static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	Util.box(b, Vector3(seg, h, t), Vector3(door_w * 0.5 + seg * 0.5, F + h * 0.5, fz), wall)
 	Util.box(b, Vector3(door_w, h - door_h, t),
 		Vector3(0, F + door_h + (h - door_h) * 0.5, fz), wall)
-	# Entry steps so the foundation is a walk-up, not a jump.
+	# Entry steps: the visible steps carry NO collision — CharacterBody3D
+	# cannot climb vertical ledges, so an invisible ramp does the real work.
 	var sw := door_w + 0.7
-	Util.box(b, Vector3(sw, 0.3, 0.6), Vector3(0, 0.15, d * 0.5 + 0.55), TexF.mat("stone"))
-	Util.box(b, Vector3(sw, 0.15, 0.6), Vector3(0, 0.075, d * 0.5 + 1.15), TexF.mat("stone"))
+	Util.box(b, Vector3(sw, 0.3, 0.6), Vector3(0, 0.15, d * 0.5 + 0.55), TexF.mat("stone"), false)
+	Util.box(b, Vector3(sw, 0.15, 0.6), Vector3(0, 0.075, d * 0.5 + 1.15), TexF.mat("stone"), false)
+	Util.shape_box(b, Vector3(sw, 0.12, 1.55), Vector3(0, 0.21, d * 0.5 + 0.82),
+		Vector3(20.5, 0, 0))
 	return b
 
 

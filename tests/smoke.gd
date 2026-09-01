@@ -6,6 +6,10 @@ extends SceneTree
 ## condition (open all 20), and the feedback report pipeline.
 
 var _frames := 0
+var _stage := 0
+var _walk_frames := 0
+var _walk_house: Node3D = null
+var _fails: Array[String] = []
 
 
 func _initialize() -> void:
@@ -52,8 +56,10 @@ func _process(_delta: float) -> bool:
 	_frames += 1
 	if _frames < 4:
 		return false
-	var fails: Array[String] = []
 	var main = root.get_node_or_null("Main")
+	if _stage == 1:
+		return _walk_test_tick(main)
+	var fails := _fails
 	if main == null or main.get_script() == null:
 		print("FAIL: Main node missing or script failed to compile")
 		quit(1)
@@ -218,8 +224,38 @@ func _process(_delta: float) -> bool:
 		_nest_check(main, fails, b + ": ")
 	main.debug_biome = ""
 
+	# Final stage: physically walk the player up the entry ramp into a house.
+	main.start_daily()
+	_walk_house = main.world.get_node("Village").get_node_or_null("House")
+	if _walk_house == null:
+		fails.append("no house found for walk-in test")
+		return _finish(fails)
+	var pl = main.player
+	var start: Vector3 = _walk_house.global_transform * Vector3(0, 0.2, 5.5)
+	pl.global_position = start
+	pl.velocity = Vector3.ZERO
+	var dirw: Vector3 = _walk_house.global_transform.basis * Vector3(0, 0, -1)
+	pl.set_facing(atan2(-dirw.x, -dirw.z))
+	Input.action_press("move_forward")
+	_stage = 1
+	_walk_frames = 0
+	return false
+
+
+func _walk_test_tick(main) -> bool:
+	_walk_frames += 1
+	if _walk_frames < 150:
+		return false
+	Input.action_release("move_forward")
+	var lp: Vector3 = _walk_house.to_local(main.player.global_position)
+	if lp.z > 2.6 or lp.y < 0.35:
+		_fails.append("player could not walk into the house (local z=%.2f y=%.2f)" % [lp.z, lp.y])
+	return _finish(_fails)
+
+
+func _finish(fails: Array[String]) -> bool:
 	if fails.is_empty():
-		print("SMOKE PASS (modes, determinism, 4 biomes, 7 tools, nests, win condition, feedback OK)")
+		print("SMOKE PASS (modes, determinism, 4 biomes, 7 tools, nests, win, walk-in, feedback OK)")
 		quit(0)
 	else:
 		for f in fails:
