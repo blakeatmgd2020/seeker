@@ -101,28 +101,38 @@ static func _style_mats(style: String) -> Dictionary:
 				barn_wall = TexF.mat("plank"), barn_roof = TexF.mat("roof_dark")}
 
 
-## Shared shell: foundation, floor, walls with a door gap. Returns the body.
+## Interior floor surface height above the building origin (foundation top
+## plus the wooden floor veneer). Everything indoors rests on this plane.
+const FLOOR_TOP := 0.5
+const FOUND_TOP := 0.45
+
+
+## Shared shell: foundation with entry steps, floor, walls with a door gap.
 static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		w: float, d: float, h: float, door_w: float, door_h: float,
-		wall: Material, foundation_h: float) -> StaticBody3D:
+		wall: Material, _foundation_h: float) -> StaticBody3D:
 	var b := StaticBody3D.new()
 	b.collision_layer = 1
 	root.add_child(b)
 	b.position = Vector3(pos.x, terrain.height_at(pos.x, pos.y), pos.y)
 	b.rotation_degrees.y = yaw
 	var t := 0.25
-	Util.box(b, Vector3(w + 0.5, foundation_h, d + 0.5),
-		Vector3(0, foundation_h * 0.5 - 0.45, 0), TexF.mat("stone"))
-	Util.box(b, Vector3(w - 0.4, 0.15, d - 0.4), Vector3(0, 0.12, 0), TexF.mat("floor"))
-	Util.box(b, Vector3(w, h, t), Vector3(0, h * 0.5, -d * 0.5 + t * 0.5), wall)
-	Util.box(b, Vector3(t, h, d), Vector3(-w * 0.5 + t * 0.5, h * 0.5, 0), wall)
-	Util.box(b, Vector3(t, h, d), Vector3(w * 0.5 - t * 0.5, h * 0.5, 0), wall)
+	var F := FOUND_TOP
+	Util.box(b, Vector3(w + 0.5, 0.9, d + 0.5), Vector3(0, 0.0, 0), TexF.mat("stone"))
+	Util.box(b, Vector3(w - 0.4, 0.05, d - 0.4), Vector3(0, 0.475, 0), TexF.mat("floor"))
+	Util.box(b, Vector3(w, h, t), Vector3(0, F + h * 0.5, -d * 0.5 + t * 0.5), wall)
+	Util.box(b, Vector3(t, h, d), Vector3(-w * 0.5 + t * 0.5, F + h * 0.5, 0), wall)
+	Util.box(b, Vector3(t, h, d), Vector3(w * 0.5 - t * 0.5, F + h * 0.5, 0), wall)
 	var seg := (w - door_w) * 0.5
 	var fz := d * 0.5 - t * 0.5
-	Util.box(b, Vector3(seg, h, t), Vector3(-(door_w * 0.5 + seg * 0.5), h * 0.5, fz), wall)
-	Util.box(b, Vector3(seg, h, t), Vector3(door_w * 0.5 + seg * 0.5, h * 0.5, fz), wall)
+	Util.box(b, Vector3(seg, h, t), Vector3(-(door_w * 0.5 + seg * 0.5), F + h * 0.5, fz), wall)
+	Util.box(b, Vector3(seg, h, t), Vector3(door_w * 0.5 + seg * 0.5, F + h * 0.5, fz), wall)
 	Util.box(b, Vector3(door_w, h - door_h, t),
-		Vector3(0, door_h + (h - door_h) * 0.5, fz), wall)
+		Vector3(0, F + door_h + (h - door_h) * 0.5, fz), wall)
+	# Entry steps so the foundation is a walk-up, not a jump.
+	var sw := door_w + 0.7
+	Util.box(b, Vector3(sw, 0.3, 0.6), Vector3(0, 0.15, d * 0.5 + 0.55), TexF.mat("stone"))
+	Util.box(b, Vector3(sw, 0.15, 0.6), Vector3(0, 0.075, d * 0.5 + 1.15), TexF.mat("stone"))
 	return b
 
 
@@ -135,48 +145,49 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	var t := 0.25
 	var b := _shell(root, terrain, pos, yaw, w, d, h, 1.6, 2.3, m.wall, 0.9)
 	b.name = "House"
+	var F := FOUND_TOP
 	var fz := d * 0.5 - t * 0.5
 	var wood := TexF.mat("wood")
-	Util.box(b, Vector3(0.12, 2.3, t + 0.08), Vector3(-0.86, 1.15, fz), wood, false)
-	Util.box(b, Vector3(0.12, 2.3, t + 0.08), Vector3(0.86, 1.15, fz), wood, false)
-	Util.box(b, Vector3(1.9, 0.14, t + 0.08), Vector3(0, 2.36, fz), wood, false)
+	Util.box(b, Vector3(0.12, 2.3, t + 0.08), Vector3(-0.86, F + 1.15, fz), wood, false)
+	Util.box(b, Vector3(0.12, 2.3, t + 0.08), Vector3(0.86, F + 1.15, fz), wood, false)
+	Util.box(b, Vector3(1.9, 0.14, t + 0.08), Vector3(0, F + 2.36, fz), wood, false)
 	var win_h := 0.6 if style == "adobe" else 0.9
 	for wz in [-1.4, 1.4]:
-		Util.box(b, Vector3(0.08, win_h, 1.0), Vector3(-w * 0.5 - 0.02, 1.7, wz), TexF.mat("window"), false)
-		Util.box(b, Vector3(0.08, win_h, 1.0), Vector3(w * 0.5 + 0.02, 1.7, wz), TexF.mat("window"), false)
+		Util.box(b, Vector3(0.08, win_h, 1.0), Vector3(-w * 0.5 - 0.02, F + 1.7, wz), TexF.mat("window"), false)
+		Util.box(b, Vector3(0.08, win_h, 1.0), Vector3(w * 0.5 + 0.02, F + 1.7, wz), TexF.mat("window"), false)
 
 	match style:
 		"adobe":
 			# Flat roof slab with a parapet and viga beam ends.
-			Util.box(b, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, h + 0.15, 0), m.wall)
-			for pr in [[Vector3(0, h + 0.5, -d * 0.5 - 0.2), Vector3(w + 0.6, 0.4, 0.2)],
-					[Vector3(0, h + 0.5, d * 0.5 + 0.2), Vector3(w + 0.6, 0.4, 0.2)],
-					[Vector3(-w * 0.5 - 0.2, h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)],
-					[Vector3(w * 0.5 + 0.2, h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)]]:
+			Util.box(b, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, F + h + 0.15, 0), m.wall)
+			for pr in [[Vector3(0, F + h + 0.5, -d * 0.5 - 0.2), Vector3(w + 0.6, 0.4, 0.2)],
+					[Vector3(0, F + h + 0.5, d * 0.5 + 0.2), Vector3(w + 0.6, 0.4, 0.2)],
+					[Vector3(-w * 0.5 - 0.2, F + h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)],
+					[Vector3(w * 0.5 + 0.2, F + h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)]]:
 				Util.box(b, pr[1], pr[0], m.wall, false)
 			for vx in [-3.0, -1.5, 0.0, 1.5, 3.0]:
-				Util.cyl(b, 0.09, 0.09, 0.5, Vector3(vx, h - 0.25, fz + 0.2),
+				Util.cyl(b, 0.09, 0.09, 0.5, Vector3(vx, F + h - 0.25, fz + 0.2),
 					TexF.mat("darkwood"), Vector3(90, 0, 0), 8)
 		"alpine":
 			var roof := PrismMesh.new()
 			roof.size = Vector3(w + 1.4, 2.8, d + 1.4)
 			roof.material = m.roof
-			Util.mesh(b, roof, Vector3(0, h + 1.4, 0))
+			Util.mesh(b, roof, Vector3(0, F + h + 1.4, 0))
 			var snow := PrismMesh.new()
 			snow.size = Vector3(w + 1.5, 0.5, d + 1.5)
 			snow.material = TexF.mat("snow")
-			Util.mesh(b, snow, Vector3(0, h + 2.75, 0))
-			Util.box(b, Vector3(0.7, 2.2, 0.7), Vector3(w * 0.5 - 1.2, h + 1.2, -d * 0.5 + 1.4),
+			Util.mesh(b, snow, Vector3(0, F + h + 2.75, 0))
+			Util.box(b, Vector3(0.7, 2.2, 0.7), Vector3(w * 0.5 - 1.2, F + h + 1.2, -d * 0.5 + 1.4),
 				TexF.mat("stone"), false)
-			Util.box(b, Vector3(0.8, 0.15, 0.8), Vector3(w * 0.5 - 1.2, h + 2.35, -d * 0.5 + 1.4),
+			Util.box(b, Vector3(0.8, 0.15, 0.8), Vector3(w * 0.5 - 1.2, F + h + 2.35, -d * 0.5 + 1.4),
 				TexF.mat("snow"), false)
 		_:
 			var roof := PrismMesh.new()
 			roof.size = Vector3(w + 1.2, 2.2, d + 1.2)
 			roof.material = m.roof
-			Util.mesh(b, roof, Vector3(0, h + 1.1, 0))
+			Util.mesh(b, roof, Vector3(0, F + h + 1.1, 0))
 			if style == "timber":
-				for iv in [Vector3(-2.6, 1.1, fz + 0.15), Vector3(3.1, 1.8, fz + 0.15)]:
+				for iv in [Vector3(-2.6, F + 1.1, fz + 0.15), Vector3(3.1, F + 1.8, fz + 0.15)]:
 					var ivy := SphereMesh.new()
 					ivy.radius = 0.55
 					ivy.height = 1.1
@@ -184,17 +195,18 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 					var mi := Util.mesh(b, ivy, iv)
 					mi.scale = Vector3(1.0, 1.2, 0.4)
 
-	Util.box(b, Vector3(1.4, 0.08, 0.8), Vector3(2.4, 0.78, -1.6), wood, false)
-	Util.box(b, Vector3(0.18, 0.75, 0.18), Vector3(2.4, 0.4, -1.6), wood, false)
-	Util.box(b, Vector3(0.9, 0.35, 1.9), Vector3(-2.9, 0.35, 1.4), TexF.mat("blanket"))
-	Util.box(b, Vector3(0.6, 0.14, 0.4), Vector3(-2.9, 0.6, 0.7), TexF.mat("pillow"), false)
+	# Furniture rests on the interior floor plane.
+	Util.box(b, Vector3(1.4, 0.08, 0.8), Vector3(2.4, FLOOR_TOP + 0.74, -1.6), wood, false)
+	Util.box(b, Vector3(0.18, 0.7, 0.18), Vector3(2.4, FLOOR_TOP + 0.35, -1.6), wood, false)
+	Util.box(b, Vector3(0.9, 0.35, 1.9), Vector3(-2.9, FLOOR_TOP + 0.175, 1.4), TexF.mat("blanket"))
+	Util.box(b, Vector3(0.6, 0.14, 0.4), Vector3(-2.9, FLOOR_TOP + 0.42, 0.7), TexF.mat("pillow"), false)
 	var wl := OmniLight3D.new()
-	wl.position = Vector3(0, 2.5, 0)
+	wl.position = Vector3(0, F + 2.5, 0)
 	wl.light_color = Color(1.0, 0.85, 0.6)
 	wl.omni_range = 7.0
 	wl.light_energy = 1.4
 	b.add_child(wl)
-	return b.transform * Transform3D(Basis(), Vector3(1.2, 0.2, -2.35))
+	return b.transform * Transform3D(Basis(), Vector3(1.2, FLOOR_TOP, -2.35))
 
 
 static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
@@ -205,36 +217,37 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	var h := 3.6
 	var b := _shell(root, terrain, pos, yaw, w, d, h, 3.0, 3.0, m.barn_wall, 0.9)
 	b.name = "Barn"
+	var F := FOUND_TOP
 	var fz := d * 0.5 - 0.125
-	Util.box(b, Vector3(0.15, 3.0, 0.35), Vector3(-1.55, 1.5, fz), TexF.mat("darkwood"), false)
-	Util.box(b, Vector3(0.15, 3.0, 0.35), Vector3(1.55, 1.5, fz), TexF.mat("darkwood"), false)
+	Util.box(b, Vector3(0.15, 3.0, 0.35), Vector3(-1.55, F + 1.5, fz), TexF.mat("darkwood"), false)
+	Util.box(b, Vector3(0.15, 3.0, 0.35), Vector3(1.55, F + 1.5, fz), TexF.mat("darkwood"), false)
 	if style == "adobe":
-		Util.box(b, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, h + 0.15, 0), m.barn_wall)
-		for pr in [[Vector3(0, h + 0.5, -d * 0.5 - 0.2), Vector3(w + 0.6, 0.4, 0.2)],
-				[Vector3(0, h + 0.5, d * 0.5 + 0.2), Vector3(w + 0.6, 0.4, 0.2)],
-				[Vector3(-w * 0.5 - 0.2, h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)],
-				[Vector3(w * 0.5 + 0.2, h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)]]:
+		Util.box(b, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, F + h + 0.15, 0), m.barn_wall)
+		for pr in [[Vector3(0, F + h + 0.5, -d * 0.5 - 0.2), Vector3(w + 0.6, 0.4, 0.2)],
+				[Vector3(0, F + h + 0.5, d * 0.5 + 0.2), Vector3(w + 0.6, 0.4, 0.2)],
+				[Vector3(-w * 0.5 - 0.2, F + h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)],
+				[Vector3(w * 0.5 + 0.2, F + h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)]]:
 			Util.box(b, pr[1], pr[0], m.barn_wall, false)
 	else:
 		var roof := PrismMesh.new()
 		roof.size = Vector3(w + 1.4, 3.0 if style == "alpine" else 2.6, d + 1.4)
 		roof.material = m.barn_roof
-		Util.mesh(b, roof, Vector3(0, h + (1.5 if style == "alpine" else 1.3), 0))
+		Util.mesh(b, roof, Vector3(0, F + h + (1.5 if style == "alpine" else 1.3), 0))
 		if style == "alpine":
 			var snow := PrismMesh.new()
 			snow.size = Vector3(w + 1.5, 0.5, d + 1.5)
 			snow.material = TexF.mat("snow")
-			Util.mesh(b, snow, Vector3(0, h + 2.95, 0))
+			Util.mesh(b, snow, Vector3(0, F + h + 2.95, 0))
 	if style != "adobe":
-		for sp in [Vector3(2.5, 0.26, -2.0), Vector3(-3.0, 0.26, 1.5)]:
+		for sp in [Vector3(2.5, FLOOR_TOP + 0.03, -2.0), Vector3(-3.0, FLOOR_TOP + 0.03, 1.5)]:
 			Util.cyl(b, 1.4, 1.5, 0.1, sp, TexF.mat("straw"), Vector3.ZERO, 12)
 	var wl := OmniLight3D.new()
-	wl.position = Vector3(0, 3.0, 0)
+	wl.position = Vector3(0, F + 3.0, 0)
 	wl.light_color = Color(1.0, 0.88, 0.65)
 	wl.omni_range = 9.0
 	wl.light_energy = 1.3
 	b.add_child(wl)
-	return b.transform * Transform3D(Basis(Vector3.UP, deg_to_rad(-20.0)), Vector3(-3.0, 0.1, -2.4))
+	return b.transform * Transform3D(Basis(Vector3.UP, deg_to_rad(-20.0)), Vector3(-3.0, FLOOR_TOP, -2.4))
 
 
 static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String) -> void:

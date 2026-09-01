@@ -21,16 +21,17 @@ var game_mode := "daily"
 var random_seed_val := 1
 var world: Node3D = null
 var structures: Array[Interactable] = []
+var climbables: Array = []
 var searched_count := 0
+var hunt_won := false
+var world_start_ms := 0
 var day_offset := 0
-var round_num := 1
-var tag_number := ""
 var biome: Dictionary = {}
 var mood_name := ""
 var weather_id := "clear"
 var weather_name := "Clear"
 var tools := {map = false, compass = false, spyglass = false,
-	pencil = false, notepad = false, eraser = false}
+	pencil = false, notepad = false, eraser = false, irons = false}
 var trail: Array[Vector2] = []
 var spotted: Array[Interactable] = []
 var spot_idx := 0
@@ -89,7 +90,6 @@ func start_random(sv: int) -> void:
 	game_mode = "random"
 	random_seed_val = maxi(absi(sv) % 2147483647, 1)
 	day_offset = 0
-	round_num = 1
 	_enter_game()
 	_build_world()
 
@@ -185,7 +185,6 @@ func day_label(offset: int) -> String:
 
 func load_day(offset: int) -> void:
 	day_offset = offset
-	round_num = 1
 	_build_world()
 
 
@@ -250,20 +249,29 @@ func _build_world() -> void:
 	exclusions.append(Vector3(player.position.x, player.position.z, 6.0))
 	Vegetation.build(world, terrain, exclusions, wrng.randi(), biome)
 
+	# Great trees / spires become climbable (with the irons).
+	climbables.clear()
+	for s in structures:
+		if s.kind == "nest":
+			climbables.append({axis = Vector3(s.position.x, 0, s.position.z),
+				top_y = s.position.y})
+
+	# Tool locations are deterministic per seed.
 	var trng := RandomNumberGenerator.new()
 	trng.seed = _world_seed() ^ 0x5DEECE66
-	_assign_tag(trng, -1)
 	_assign_tools(trng)
 	tools = {map = false, compass = false, spyglass = false,
-		pencil = false, notepad = false, eraser = false}
+		pencil = false, notepad = false, eraser = false, irons = false}
 	trail.clear()
 	spotted.clear()
 	spot_idx = 0
+	hunt_won = false
+	world_start_ms = Time.get_ticks_msec()
 	hud.clear_annotations()
 	hud.set_tools(tools)
 	hud.set_map_texture(terrain.make_map_texture())
 	hud.set_count(0, structures.size())
-	hud.clear_found()
+	hud.hide_banner()
 	_update_day_info()
 	if feedback:
 		feedback.log_world("%s · %s · %s · %s" % [world_title(), biome.label,
@@ -283,13 +291,17 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 		var tmp = bag[i]
 		bag[i] = bag[j]
 		bag[j] = tmp
-	while bag.size() > wild_total - 1:
+	# Reserve three slots: two great-tree nests and the hilltop chest.
+	while bag.size() > wild_total - 3:
 		bag.pop_back()
 	var fi := 0
-	while bag.size() < wild_total - 1:
+	while bag.size() < wild_total - 3:
 		var entry: Array = biome.wild_pool[fi % biome.wild_pool.size()]
 		fi += 1
 		bag.append({kind = entry[0], display = entry[1]})
+	var nest_name := "spire nest" if biome.id == "desert" else "bird nest"
+	bag.append({kind = "nest", display = nest_name})
+	bag.append({kind = "nest", display = nest_name})
 
 	var pts: Array[Vector2] = []
 	for sp in bag:
@@ -327,7 +339,7 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 		if not found:
 			sp.x = wrng.randf_range(-180.0, 180.0)
 			sp.z = wrng.randf_range(-180.0, 180.0)
-		if rest == "rigid":
+		if rest == "rigid" or rest == "tree":
 			var pp := Vector2(sp.x, sp.z)
 			terrain.add_flat_patch(pp, 1.4, 2.8,
 				terrain.height_at(pp.x, pp.y) - terrain.drop_under(pp, 1.4) * 0.35)
@@ -369,6 +381,10 @@ func _spawn_structure(container: Node3D, sp: Dictionary, wrng: RandomNumberGener
 				var sink := (h - hmin) * 0.85 + 0.04
 				s.transform = Transform3D(Basis(Vector3.UP, wrng.randf_range(0.0, TAU)),
 					Vector3(x, h - sink, z))
+			"tree":
+				# Great trees: the structure origin is the NEST at the top.
+				s.transform = Transform3D(Basis(Vector3.UP, wrng.randf_range(0.0, TAU)),
+					Vector3(x, h + Structures.NEST_HEIGHT, z))
 			_:
 				# Rigid kinds sit upright on their carved terrace.
 				s.transform = Transform3D(Basis(Vector3.UP, wrng.randf_range(0.0, TAU)),
@@ -464,35 +480,16 @@ func _place_player(wrng: RandomNumberGenerator) -> void:
 	player.set_facing(atan2(-to_v.x, -to_v.y))
 
 
-# --- tag rounds & tools --------------------------------------------------
-
-func _assign_tag(trng: RandomNumberGenerator, exclude_idx: int) -> void:
-	if structures.is_empty():
-		return
-	for s in structures:
-		s.has_item = false
-		s.tag_text = ""
-	var idx := trng.randi_range(0, structures.size() - 1)
-	if structures.size() > 1:
-		while idx == exclude_idx:
-			idx = trng.randi_range(0, structures.size() - 1)
-	tag_number = str(trng.randi_range(1000, 9999))
-	structures[idx].has_item = true
-	structures[idx].tag_text = tag_number
-
+# --- tools ---------------------------------------------------------------
 
 func _assign_tools(trng: RandomNumberGenerator) -> void:
-	var tag_idx := -1
-	for i in structures.size():
-		if structures[i].has_item:
-			tag_idx = i
+	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "eraser", "irons"]
 	var picks: Array[int] = []
-	while picks.size() < 6:
+	while picks.size() < ids.size():
 		var i := trng.randi_range(0, structures.size() - 1)
-		if i == tag_idx or i in picks:
+		if i in picks:
 			continue
 		picks.append(i)
-	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "eraser"]
 	for k in ids.size():
 		structures[picks[k]].tool_id = ids[k]
 
@@ -504,36 +501,7 @@ func _collect_tool(s: Interactable) -> void:
 	feedback.tools_found.append(id)
 	s.spawn_tool_prop(id)
 	hud.set_tools(tools)
-	hud.toast("You found the %s!" % id)
-
-
-func rehide_tag() -> void:
-	if structures.is_empty():
-		return
-	round_num += 1
-	feedback.rounds += 1
-	var prev := -1
-	for i in structures.size():
-		if structures[i].has_item:
-			prev = i
-	for s in structures:
-		s.reset()
-	searched_count = 0
-	var rr := RandomNumberGenerator.new()
-	rr.randomize()
-	_assign_tag(rr, prev)
-	for attempt in 50:
-		var holder := -1
-		for i in structures.size():
-			if structures[i].has_item:
-				holder = i
-		if structures[holder].tool_id.is_empty():
-			break
-		_assign_tag(rr, prev)
-	hud.set_count(0, structures.size())
-	hud.clear_found()
-	_update_day_info()
-	hud.toast("The tag has been re-hidden somewhere new.")
+	hud.toast("You found the %s!" % ("climbing irons" if id == "irons" else id))
 
 
 # --- pencil / spotting ---------------------------------------------------
@@ -596,18 +564,19 @@ func _on_searched(s: Interactable) -> void:
 	var had_tool := not s.tool_id.is_empty()
 	if had_tool:
 		_collect_tool(s)
-	if s.has_item:
+	elif searched_count < structures.size():
+		hud.toast("The %s is empty." % s.display_name)
+	if searched_count >= structures.size() and not hunt_won:
+		hunt_won = true
 		feedback.finds += 1
-		hud.found(tag_number)
-	elif not had_tool:
-		hud.toast("Nothing in the %s." % s.display_name)
+		var secs := int((Time.get_ticks_msec() - world_start_ms) / 1000.0)
+		hud.win(structures.size(), "%d:%02d" % [secs / 60, secs % 60])
 
 
 func _update_day_info() -> void:
 	var txt := "%s · %s · %s" % [world_title(), biome.label, mood_name]
 	if weather_id != "clear":
 		txt += " · " + weather_name
-	txt += " · Round %d" % round_num
 	hud.set_day_info(txt)
 
 
@@ -704,11 +673,12 @@ func _shot_routine() -> void:
 			nearest = s
 	player.set_target(nearest)
 	tools = {map = true, compass = false, spyglass = true,
-		pencil = true, notepad = true, eraser = true}
+		pencil = true, notepad = true, eraser = true, irons = true}
 	hud.set_tools(tools)
 	for s in structures:
 		s.seen = true
 	add_spot(nearest)
+	player.stamina = 0.45
 	# Fake a little wandering so the trail ink shows in screenshots.
 	var pw := Vector2(player.position.x, player.position.z)
 	for i in 30:
@@ -720,9 +690,18 @@ func _shot_routine() -> void:
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_player.png"))
 	tools.compass = true
 	hud.set_tools(tools)
-	var tv := nearest.global_position - player.global_position
+	var aim_at: Interactable = nearest
+	var nbest := 1e9
+	for s in structures:
+		if s.kind == "nest":
+			var nd := player.global_position.distance_to(s.global_position)
+			if nd < nbest:
+				nbest = nd
+				aim_at = s
+	var tv := aim_at.global_position - player.global_position
 	player.set_facing(atan2(-tv.x, -tv.z))
-	player.pitch_node.rotation_degrees.x = -2.0
+	player.pitch_node.rotation_degrees.x = rad_to_deg(
+		atan2(tv.y, Vector2(tv.x, tv.z).length()))
 	Input.action_press("spyglass")
 	await get_tree().create_timer(1.2).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_spy.png"))

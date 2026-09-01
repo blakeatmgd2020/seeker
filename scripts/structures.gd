@@ -3,6 +3,9 @@ class_name Structures
 ## (with overlap); some materials swap by biome (e.g. desert sand mounds
 ## and bleached logs).
 
+## Height of the great-tree / spire nests — climbing irons required.
+const NEST_HEIGHT := 11.0
+
 
 static func create(kind: String, display: String, biome_id := "meadow") -> Interactable:
 	var s := Interactable.new()
@@ -43,6 +46,8 @@ static func create(kind: String, display: String, biome_id := "meadow") -> Inter
 			_urn(s)
 		"bone_pile":
 			_bone_pile(s)
+		"nest":
+			_nest(s, biome_id)
 	return s
 
 
@@ -55,6 +60,8 @@ static func rest_class(kind: String) -> String:
 			return "log"
 		"dirt_pile", "haystack", "leaf_pile", "snow_mound", "bone_pile":
 			return "mound"
+		"nest":
+			return "tree"
 		_:
 			return "rigid"
 
@@ -360,6 +367,57 @@ static func _scarecrow(s: Interactable) -> void:
 	s.anim_rots = [Vector3(95, 0, 0)]
 	s.item_anchor = Vector3(0, 1.3, 0.25)
 	s.ring_radius = 0.9
+
+
+## A nest atop a great tree (or a stone spire in the desert). The structure's
+## ORIGIN IS AT THE TOP, so interact range naturally requires climbing up;
+## the tree/spire hangs below it in local space.
+static func _nest(s: Interactable, biome_id: String) -> void:
+	var h := NEST_HEIGHT
+	if biome_id == "desert":
+		Util.cyl(s, 0.9, 1.7, h, Vector3(0, -h * 0.5, 0), TexF.mat("stone"), Vector3.ZERO, 10)
+		Util.cyl(s, 1.4, 1.9, 2.4, Vector3(0, -h + 1.2, 0), TexF.mat("stone"), Vector3.ZERO, 9)
+	else:
+		Util.cyl(s, 0.45, 0.9, h, Vector3(0, -h * 0.5, 0), TexF.mat("bark"), Vector3.ZERO, 10)
+		var leaf_key := "leaves"
+		if biome_id == "autumn":
+			leaf_key = "leaves_autumn1"
+		elif biome_id == "winter":
+			leaf_key = "leaves_dark"
+		for off in [Vector3(-1.2, -2.8, 0.3), Vector3(1.1, -3.3, -0.4),
+				Vector3(0.2, -2.2, 1.0), Vector3(-0.2, -4.0, -0.9)]:
+			var can := SphereMesh.new()
+			can.radius = 1.6
+			can.height = 3.2
+			can.radial_segments = 9
+			can.rings = 5
+			can.material = TexF.mat(leaf_key)
+			Util.mesh(s, can, off)
+		if biome_id == "winter":
+			var cap := SphereMesh.new()
+			cap.radius = 1.3
+			cap.height = 1.2
+			cap.is_hemisphere = true
+			cap.material = TexF.mat("snow")
+			Util.mesh(s, cap, Vector3(0, -1.9, 0))
+	# platform and nest
+	Util.cyl(s, 1.0, 0.85, 0.18, Vector3(0, -0.16, 0), TexF.mat("darkwood"), Vector3.ZERO, 10)
+	var nest := TorusMesh.new()
+	nest.inner_radius = 0.42
+	nest.outer_radius = 0.85
+	nest.material = TexF.mat("straw")
+	Util.mesh(s, nest, Vector3(0, 0.08, 0))
+	for e in [Vector3(0.15, 0.1, 0.1), Vector3(-0.18, 0.1, -0.05), Vector3(0.0, 0.1, -0.2)]:
+		var egg := SphereMesh.new()
+		egg.radius = 0.12
+		egg.height = 0.28
+		egg.material = TexF.plain(Color(0.88, 0.90, 0.86))
+		Util.mesh(s, egg, e)
+	Util.shape_cyl(s, 0.9, h, Vector3(0, -h * 0.5, 0))
+	Util.shape_cyl(s, 1.0, 0.2, Vector3(0, -0.15, 0))
+	s.anim_style = "shake"
+	s.item_anchor = Vector3(0, 0.5, 0)
+	s.ring_radius = 1.0
 
 
 static func _urn(s: Interactable) -> void:

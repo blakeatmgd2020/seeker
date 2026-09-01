@@ -1,8 +1,9 @@
 # Seeker
 
-A third-person open-world hide-and-seek game (Godot 4.7.1). Somewhere in the
-valley, one of 20 searchable structures hides a wooden tag with a number on
-it — find it.
+A third-person open-world hide-and-seek game (Godot 4.7.1). Twenty
+searchable structures are scattered across the valley — crates, hollow
+logs, dirt piles, wardrobes, nests atop great trees. Find and open them
+all; your time is scored when the last one falls.
 
 Every calendar day generates a new world from that date's seed: **one of four
 biomes** (Green Meadow, Autumn Vale, Winter Highlands, Sunscar Badlands —
@@ -50,14 +51,16 @@ WoW-style mouse: the cursor is free and independent of the camera.
   steers the character; **both buttons** held = run forward; **wheel** zooms
 - **Left-click** a structure to target it (gold ring + target frame);
   **right-click** targets and searches it if you're within ~4 m
-- **WASD** move relative to facing (S backpedals slower), **Shift** sprint,
-  **Space** jump, **E** search your current target
+- **WASD** move relative to facing (S backpedals slower), **Space** jump,
+  **E** search your current target
+- **Shift** sprints while the stamina meter lasts (~5 s); it refills after
+  a short breather — the bar above the prompt shows its state
 - **Esc** clears your target; pressed again it opens the menu
-  (re-hide the tag, restart the day, day travel, quit)
+  (restart, day travel, return to title, quit)
 
 ## Tools
 
-Six tools are hidden in six distinct structures each day (never the tag's):
+Seven tools are hidden in seven distinct structures each world:
 
 - **Map** — a minimap appears top-right (terrain, water, village plaza) and
   **M** opens the full map. With the map alone the minimap is **view-up**
@@ -65,18 +68,22 @@ Six tools are hidden in six distinct structures each day (never the tag's):
   yet — a bare map records nothing.
 - **Compass** — a heading strip appears top-center. With map *and* compass
   the minimap locks **north-up** and your arrow rotates instead.
-- **Spyglass** — hold **Z** to zoom ~4×; unsearched structures with a clear
-  line of sight get floating name-and-distance labels out to ~300 m.
+- **Spyglass** — hold **Z** for a proper scope: circular viewport,
+  crosshairs, ~4× zoom. Unsearched structures with a clear line of sight
+  get floating name-and-distance labels out to ~300 m.
 - **Pencil** — the record-keeper. With pencil + map, your path is inked onto
   the map as you walk (permanent unless erased) and discovered structures
   finally appear as dots. In the M map view, left-drag draws freehand notes.
 - **Notepad** — an alternate writing surface: with spyglass + pencil + (map
-  or notepad), structures seen through the spyglass are *logged*: they turn
-  green on the map until searched, and a **Spotted** list appears bottom-right.
-  **Tab** cycles the selection; with the compass, a green caret on the heading
-  strip points at the selected node's bearing.
+  or notepad), a structure is *logged* when you aim the scope's crosshairs
+  right at it: it turns green on the map until searched, and a **Spotted**
+  list appears bottom-right. **Tab** cycles the selection; with the compass,
+  a green caret on the heading strip points at the selected node's bearing.
 - **Eraser** — trail ink and drawings are permanent without it. With it,
   right-drag in the M map view erases strokes and trail alike.
+- **Climbing irons** — two structures per world are nests atop great trees
+  (stone spires in the desert). With the irons, hold **W** against the trunk
+  to climb up to them; without, those heights stay out of reach.
 
 Tools persist through re-hide rounds but reset with a new day (or day
 restart/travel) — finding them is part of each day's puzzle.

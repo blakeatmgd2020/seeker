@@ -18,6 +18,10 @@ const BASE_FOV := 72.0
 const SPY_FOV := 16.0
 const SPY_RANGE := 300.0
 const DISCOVER_RANGE := 22.0
+const SPY_AIM_DEG := 2.3      ## how tightly a node must be centered to log it
+const SPRINT_SECONDS := 5.5   ## full-to-empty sprint time
+const STAMINA_REGEN := 3.5    ## empty-to-full seconds (after a short delay)
+const CLIMB_SPEED := 3.2
 
 var hud: Hud = null
 var main: Node = null
@@ -32,6 +36,10 @@ var target: Interactable = null
 var facing := 0.0
 var cam_yaw := 0.0
 var dist_walked := 0.0
+var stamina := 1.0
+var climbing := false
+var _stamina_locked := false
+var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
 var _lmb := false
 var _rmb := false
@@ -244,23 +252,62 @@ func try_interact(s: Interactable) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not is_on_floor():
-		velocity.y -= GRAVITY * delta
-	elif Input.is_action_just_pressed("jump"):
-		velocity.y = JUMP_VEL
-
 	var iv := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	if _lmb and _rmb:
 		iv.y = -1.0
-	var dir := Basis(Vector3.UP, facing) * Vector3(iv.x, 0, iv.y)
-	dir.y = 0.0
-	if dir.length() > 1.0:
-		dir = dir.normalized()
-	var sp := SPRINT_SPEED if Input.is_action_pressed("sprint") else WALK_SPEED
-	if iv.y > 0.0:
-		sp *= BACKPEDAL_FACTOR
-	velocity.x = lerpf(velocity.x, dir.x * sp, minf(1.0, 10.0 * delta))
-	velocity.z = lerpf(velocity.z, dir.z * sp, minf(1.0, 10.0 * delta))
+
+	# Climbing irons: near a great tree, W climbs, S descends.
+	var climb := _near_climbable()
+	climbing = false
+	if not climb.is_empty() and main.tools.irons:
+		var to_axis := Vector3(climb.axis.x - global_position.x, 0.0,
+			climb.axis.z - global_position.z)
+		if iv.y < -0.1 and global_position.y < climb.top_y + 0.35:
+			climbing = true
+			if global_position.y >= climb.top_y - 0.15:
+				# Crest the top: glide onto the platform.
+				velocity = to_axis.normalized() * 2.6 + Vector3(0, 1.6, 0)
+			else:
+				velocity = Vector3(0, CLIMB_SPEED, 0) + to_axis.normalized() * 0.8
+		elif iv.y > 0.1 and not is_on_floor() and global_position.y < climb.top_y + 0.35:
+			climbing = true
+			velocity = Vector3(0, -2.6, 0)
+		if climbing:
+			body_vis.rotation.y = lerp_angle(body_vis.rotation.y,
+				atan2(to_axis.x, to_axis.z), minf(1.0, 12.0 * delta))
+
+	# Sprint stamina: Shift drains the meter; it refills after a pause.
+	var moving := iv.length() > 0.05
+	var sprinting := Input.is_action_pressed("sprint") and moving \
+		and not climbing and stamina > 0.0 and not _stamina_locked
+	if sprinting:
+		stamina = maxf(stamina - delta / SPRINT_SECONDS, 0.0)
+		_regen_delay = 1.0
+		if stamina <= 0.0:
+			_stamina_locked = true
+	else:
+		_regen_delay -= delta
+		if _regen_delay <= 0.0:
+			stamina = minf(stamina + delta / STAMINA_REGEN, 1.0)
+	if _stamina_locked and stamina > 0.3:
+		_stamina_locked = false
+	if hud:
+		hud.set_stamina(stamina, _stamina_locked)
+
+	if not climbing:
+		if not is_on_floor():
+			velocity.y -= GRAVITY * delta
+		elif Input.is_action_just_pressed("jump"):
+			velocity.y = JUMP_VEL
+		var dir := Basis(Vector3.UP, facing) * Vector3(iv.x, 0, iv.y)
+		dir.y = 0.0
+		if dir.length() > 1.0:
+			dir = dir.normalized()
+		var sp := SPRINT_SPEED if sprinting else WALK_SPEED
+		if iv.y > 0.0:
+			sp *= BACKPEDAL_FACTOR
+		velocity.x = lerpf(velocity.x, dir.x * sp, minf(1.0, 10.0 * delta))
+		velocity.z = lerpf(velocity.z, dir.z * sp, minf(1.0, 10.0 * delta))
 	move_and_slide()
 	var wp := Vector2(global_position.x, global_position.z)
 	var step := wp.distance_to(_last_walk_pos)
@@ -268,7 +315,8 @@ func _physics_process(delta: float) -> void:
 		dist_walked += step
 	_last_walk_pos = wp
 
-	body_vis.rotation.y = lerp_angle(body_vis.rotation.y, facing + PI, minf(1.0, 14.0 * delta))
+	if not climbing:
+		body_vis.rotation.y = lerp_angle(body_vis.rotation.y, facing + PI, minf(1.0, 14.0 * delta))
 
 	# Camera swings back behind the character while moving (unless the
 	# player is holding a left-drag orbit).
@@ -298,8 +346,25 @@ func _physics_process(delta: float) -> void:
 		else:
 			hud.set_hover("", Vector2.ZERO)
 
+	# Climb hint when standing at a great tree.
+	if hud and not climb.is_empty() and is_on_floor() and hud.prompt.text.is_empty():
+		if main.tools.irons:
+			hud.prompt.text = "Hold W against the trunk to climb"
+		else:
+			hud.prompt.text = "These heights need climbing irons"
+
 	if Input.is_action_just_pressed("interact") and target and is_instance_valid(target):
 		try_interact(target)
+
+
+func _near_climbable() -> Dictionary:
+	if main == null:
+		return {}
+	for c in main.climbables:
+		var d := Vector2(global_position.x - c.axis.x, global_position.z - c.axis.z).length()
+		if d < 2.2 and global_position.y < c.top_y + 1.0:
+			return c
+	return {}
 
 
 ## Marks nearby structures as discovered; while the spyglass is raised, also
@@ -328,9 +393,13 @@ func _update_discovery(spy: bool) -> void:
 			if space.intersect_ray(q):
 				continue
 			s.seen = true
-			if main.can_note_spots():
+			# Logging a spot requires actually aiming the scope at it.
+			var aim := (p3 - cam.global_position).normalized()
+			var centered := (-cam.global_basis.z).dot(aim) > cos(deg_to_rad(SPY_AIM_DEG))
+			if centered and main.can_note_spots():
 				main.add_spot(s)
-			spots.append({pos = p3, text = "%s · %d m" % [s.display_name, int(d)]})
+			spots.append({pos = p3, centered = centered,
+				text = "%s · %d m" % [s.display_name, int(d)]})
 	if hud:
 		hud.set_spy(spy, spots)
 		var entries: Array = []

@@ -9,7 +9,8 @@ var counter: Label
 var toast_label: Label
 var banner: PanelContainer
 var banner_label: Label
-var found_tag: Label
+var stam_bg: ColorRect
+var stam_fill: ColorRect
 var target_frame: PanelContainer
 var target_name: Label
 var target_status: Label
@@ -367,13 +368,25 @@ class SpyOverlay:
 			return
 		var cam: Camera3D = main.player.cam
 		var f := ThemeDB.fallback_font
+		# Scope: black vignette around a circular viewport with crosshairs.
+		var c := size * 0.5
+		var t: float = clampf((72.0 - cam.fov) / (72.0 - 16.0), 0.0, 1.0)
+		var r := minf(size.x, size.y) * 0.42
+		if t > 0.03:
+			draw_arc(c, r + 600.0, 0.0, TAU, 64, Color(0, 0, 0, t), 1200.0)
+			draw_arc(c, r + 3.0, 0.0, TAU, 64, Color(0, 0, 0, t), 8.0)
+			draw_line(Vector2(c.x - r, c.y), Vector2(c.x + r, c.y), Color(0, 0, 0, 0.45 * t), 1.0)
+			draw_line(Vector2(c.x, c.y - r), Vector2(c.x, c.y + r), Color(0, 0, 0, 0.45 * t), 1.0)
 		for sp in spots:
 			var p: Vector2 = cam.unproject_position(sp.pos)
-			draw_circle(p, 2.5, Color(1, 0.85, 0.3))
+			var centered: bool = sp.get("centered", false)
+			var col := Color(0.5, 1.0, 0.5) if centered else Color(1, 0.95, 0.75)
+			draw_circle(p, 3.0 if centered else 2.5,
+				Color(0.3, 0.95, 0.35) if centered else Color(1, 0.85, 0.3))
 			draw_string_outline(f, p + Vector2(-90, -8), sp.text,
 				HORIZONTAL_ALIGNMENT_CENTER, 180, 13, 4, Color(0, 0, 0, 0.85))
 			draw_string(f, p + Vector2(-90, -8), sp.text,
-				HORIZONTAL_ALIGNMENT_CENTER, 180, 13, Color(1, 0.95, 0.75))
+				HORIZONTAL_ALIGNMENT_CENTER, 180, 13, col)
 
 
 func _ready() -> void:
@@ -396,13 +409,21 @@ func _ready() -> void:
 	counter.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(counter)
 
-	found_tag = _label(20, Color(1.0, 0.85, 0.35))
-	found_tag.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	found_tag.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	found_tag.position = Vector2(-250, 40)
-	found_tag.size = Vector2(236, 30)
-	found_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	add_child(found_tag)
+	# sprint stamina bar (fades away when full)
+	stam_bg = ColorRect.new()
+	stam_bg.color = Color(0, 0, 0, 0.55)
+	stam_bg.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	stam_bg.position = Vector2(-92, -52)
+	stam_bg.size = Vector2(184, 9)
+	stam_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(stam_bg)
+	stam_fill = ColorRect.new()
+	stam_fill.color = Color(0.4, 0.85, 0.35)
+	stam_fill.position = Vector2(2, 2)
+	stam_fill.size = Vector2(180, 5)
+	stam_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stam_bg.add_child(stam_fill)
+	stam_bg.visible = false
 
 	prompt = _label(24, Color.WHITE)
 	prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -448,7 +469,7 @@ func _ready() -> void:
 	chips_v.size = Vector2(236, 44)
 	chips_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(chips_v)
-	for row in [["map", "compass", "spyglass"], ["pencil", "notepad", "eraser"]]:
+	for row in [["map", "compass", "spyglass", "irons"], ["pencil", "notepad", "eraser"]]:
 		var chips := HBoxContainer.new()
 		chips.alignment = BoxContainer.ALIGNMENT_END
 		chips.add_theme_constant_override("separation", 12)
@@ -597,12 +618,21 @@ func set_day_info(text: String) -> void:
 	day_label.text = text
 
 
-func found(num: String) -> void:
+func set_stamina(v: float, locked: bool) -> void:
+	stam_bg.visible = v < 0.999
+	stam_fill.size.x = 180.0 * v
+	if locked:
+		stam_fill.color = Color(0.85, 0.3, 0.25)
+	elif v < 0.3:
+		stam_fill.color = Color(0.9, 0.7, 0.25)
+	else:
+		stam_fill.color = Color(0.4, 0.85, 0.35)
+
+
+func win(total: int, time_str: String) -> void:
 	banner.visible = true
-	banner_label.text = "YOU FOUND IT!\nThe tag reads: %s" % num
-	found_tag.text = "Tag found: %s" % num
+	banner_label.text = "EVERY HIDING PLACE SEARCHED!\nAll %d found in %s.\nAnother world awaits — a new day, or a random map." % [total, time_str]
 
 
-func clear_found() -> void:
+func hide_banner() -> void:
 	banner.visible = false
-	found_tag.text = ""

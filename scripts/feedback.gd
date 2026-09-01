@@ -8,7 +8,6 @@ extends CanvasLayer
 var main: Node = null
 var searches := 0
 var finds := 0
-var rounds := 0
 var tools_found: Array[String] = []
 var worlds: Array[String] = []
 var notes: Array[String] = []
@@ -173,9 +172,9 @@ func write_summary() -> void:
 	if not tools_found.is_empty():
 		tool_txt = ", ".join(tools_found)
 	_summary_text = "## Session summary\n"
-	_summary_text += "- duration %d:%02d · %d world(s) · %d re-hide round(s)\n" % [
-		secs / 60, secs % 60, worlds.size(), rounds]
-	_summary_text += "- structures searched: %d · tags found: %d\n" % [searches, finds]
+	_summary_text += "- duration %d:%02d · %d world(s)\n" % [
+		secs / 60, secs % 60, worlds.size()]
+	_summary_text += "- structures searched: %d · hunts completed: %d\n" % [searches, finds]
 	_summary_text += "- tools collected: %s\n" % tool_txt
 	_summary_text += "- distance walked: %.2f km\n" % (dist / 1000.0)
 	_flush()
@@ -189,9 +188,8 @@ func _clock() -> String:
 func _context() -> String:
 	if main == null or main.world == null:
 		return "- context: title screen\n"
-	var s := "- world: %s · %s · %s · %s · round %d\n" % [
-		main.world_title(), main.biome.label, main.mood_name,
-		main.weather_name, main.round_num]
+	var s := "- world: %s · %s · %s · %s\n" % [
+		main.world_title(), main.biome.label, main.mood_name, main.weather_name]
 	var owned: Array[String] = []
 	for id in main.tools:
 		if main.tools[id]:

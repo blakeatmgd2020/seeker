@@ -52,9 +52,6 @@ func _ready() -> void:
 	v.add_child(HSeparator.new())
 
 	_btn(v, "Resume").pressed.connect(close)
-	_btn(v, "Re-hide the tag…").pressed.connect(func() -> void:
-		_ask("Close every structure and hide the tag somewhere new?",
-			func() -> void: main.rehide_tag()))
 	_restart_btn = _btn(v, "Restart this day…")
 	_restart_btn.pressed.connect(func() -> void:
 		_ask("Regenerate this world from scratch?",
@@ -117,8 +114,9 @@ func open() -> void:
 	if main and main.player:
 		main.player.release_drag()
 	if main:
-		day_info.text = "%s · %s · %s · Round %d" % [
-			main.world_title(), main.biome.label, main.mood_name, main.round_num]
+		day_info.text = "%s · %s · %s · %d/%d searched" % [
+			main.world_title(), main.biome.label, main.mood_name,
+			main.searched_count, main.structures.size()]
 		var daily: bool = main.game_mode == "daily"
 		_restart_btn.text = "Restart this day…" if daily else "Restart this map…"
 		_random_btn.visible = not daily

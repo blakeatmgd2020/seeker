@@ -1,12 +1,11 @@
-class_name Interactable
+﻿class_name Interactable
 extends StaticBody3D
-## A searchable structure. One of the 20 holds the numbered tag.
+## A searchable structure. The hunt is to find and open all of them.
 
 signal searched(s: Interactable)
 
 var kind := ""
 var display_name := "structure"
-var has_item := false
 var opened := false
 
 ## "pivots" (lids/doors swing), "sink" (mound digs away), "shake" (log rattles)
@@ -19,13 +18,11 @@ var sink_scale := Vector3(1, 0.08, 1)
 var sink_shapes: Array[CollisionShape3D] = []
 var item_anchor := Vector3(0, 1.0, 0)
 var ring_radius := 1.0
-var tag_text := ""
 var tool_id := ""    ## which tool is inside ("map", "pencil", ...), if any
 var seen := false    ## discovered (walked near or spyglassed)
 var spotted := false ## logged via spyglass + pencil + writing surface
 
 var _tweens: Array[Tween] = []
-var _item_holder: Node3D = null
 var _ring: MeshInstance3D = null
 
 
@@ -61,27 +58,7 @@ func interact() -> void:
 		return
 	opened = true
 	_animate_open()
-	if has_item:
-		_reveal_item()
 	searched.emit(self)
-
-
-func reset() -> void:
-	for t in _tweens:
-		if t:
-			t.kill()
-	_tweens.clear()
-	opened = false
-	has_item = false
-	for i in anim_pivots.size():
-		anim_pivots[i].rotation_degrees = Vector3.ZERO
-	if sink_node:
-		sink_node.scale = sink_orig
-	for c in sink_shapes:
-		c.set_deferred("disabled", false)
-	if _item_holder:
-		_item_holder.queue_free()
-		_item_holder = null
 
 
 func _tw() -> Tween:
@@ -146,6 +123,14 @@ func spawn_tool_prop(id: String) -> void:
 		"eraser":
 			Util.box(holder, Vector3(0.24, 0.09, 0.13), Vector3.ZERO,
 				TexF.plain(Color(0.92, 0.48, 0.55)), false)
+		"irons":
+			for ix in [-0.09, 0.09]:
+				Util.box(holder, Vector3(0.06, 0.16, 0.2), Vector3(ix, 0, 0),
+					TexF.mat("metal"), false)
+				Util.cyl(holder, 0.0, 0.03, 0.12, Vector3(ix, -0.13, 0.04),
+					TexF.mat("metal"), Vector3.ZERO, 6)
+			Util.box(holder, Vector3(0.3, 0.05, 0.05), Vector3(0, 0.08, 0),
+				TexF.mat("darkwood"), false)
 	var gl := OmniLight3D.new()
 	gl.light_color = Color(1, 0.95, 0.7)
 	gl.omni_range = 2.5
@@ -160,41 +145,3 @@ func spawn_tool_prop(id: String) -> void:
 	spin.tween_property(holder, "rotation:y", TAU * 1.5, 1.6).as_relative()
 	spin.tween_property(holder, "scale", Vector3(0.02, 0.02, 0.02), 0.35)
 	spin.tween_callback(holder.queue_free)
-
-
-func _reveal_item() -> void:
-	_item_holder = Node3D.new()
-	add_child(_item_holder)
-	_item_holder.position = item_anchor
-	Util.box(_item_holder, Vector3(0.46, 0.6, 0.06), Vector3.ZERO, TexF.mat("tag"), false)
-	Util.box(_item_holder, Vector3(0.52, 0.66, 0.04), Vector3(0, 0, -0.012),
-		TexF.mat("darkwood"), false)
-	for side in 2:
-		var lb := Label3D.new()
-		lb.text = tag_text
-		lb.font_size = 160
-		lb.pixel_size = 0.0016
-		lb.modulate = Color(0.16, 0.09, 0.04)
-		lb.outline_size = 20
-		lb.outline_modulate = Color(0.92, 0.84, 0.62)
-		if side == 0:
-			lb.position = Vector3(0, 0, 0.036)
-		else:
-			lb.position = Vector3(0, 0, -0.036)
-			lb.rotation_degrees.y = 180.0
-		_item_holder.add_child(lb)
-	var gl := OmniLight3D.new()
-	gl.light_color = Color(1.0, 0.85, 0.4)
-	gl.omni_range = 3.5
-	gl.light_energy = 2.0
-	_item_holder.add_child(gl)
-
-	_item_holder.scale = Vector3(0.05, 0.05, 0.05)
-	var t := _tw()
-	t.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(_item_holder, "scale", Vector3.ONE, 0.6)
-	t.parallel().tween_property(_item_holder, "position",
-		item_anchor + Vector3(0, 0.8, 0), 0.8)
-	var spin := _tw()
-	spin.set_loops()
-	spin.tween_property(_item_holder, "rotation:y", TAU, 3.0).as_relative()
