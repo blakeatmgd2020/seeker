@@ -32,6 +32,8 @@ var weather_id := "clear"
 var weather_name := "Clear"
 var tools := {map = false, compass = false, spyglass = false,
 	pencil = false, notepad = false, eraser = false, irons = false}
+var has_coffee := false
+var coffee_until_ms := 0
 var trail: Array[Vector2] = []
 var spotted: Array[Interactable] = []
 var spot_idx := 0
@@ -224,7 +226,42 @@ func _build_world() -> void:
 	terrain.add_flat_patch(lay.well, 2.2, 4.0,
 		terrain.height_at(lay.well.x, lay.well.y))
 	var village_count: int = lay.buildings.size() + lay.loose.size()
+	if lay.basement:
+		village_count += 1
 	var wild := _wild_layout(wrng, STRUCTURE_TOTAL - village_count)
+
+	# Maybe a cave out in the wilds (extra nodes beyond the surface count).
+	var cave_pos := Vector2.ZERO
+	var cave_yaw := 0.0
+	var has_cave := false
+	if wrng.randf() < 0.6:
+		for attempt in 60:
+			var a := wrng.randf_range(0.0, TAU)
+			var r := wrng.randf_range(60.0, 200.0)
+			var p := Vector2(cos(a) * r, sin(a) * r)
+			if absf(p.x) > 218.0 or absf(p.y) > 218.0:
+				continue
+			if (p - terrain.village_center).length() < 50.0:
+				continue
+			if terrain.height_at(p.x, p.y) < terrain.water_y + 2.0:
+				continue
+			if terrain.normal_at(p.x, p.y).y < 0.88 or terrain.drop_under(p, 10.0) > 2.0:
+				continue
+			var clear := true
+			for sp in wild:
+				if Vector2(sp.x - p.x, sp.z - p.y).length() < 16.0:
+					clear = false
+					break
+			if not clear:
+				continue
+			cave_pos = p
+			cave_yaw = wrng.randf_range(0.0, TAU)
+			has_cave = true
+			# The flat patch must bury the whole chamber, which extends
+			# behind the mound (local -Z), so shift the patch that way.
+			var back := Vector2(sin(cave_yaw), cos(cave_yaw)) * -3.0
+			terrain.add_flat_patch(p + back, 8.5, 12.5, terrain.height_at(p.x, p.y))
+			break
 
 	terrain.build()
 	_add_water()
@@ -234,7 +271,10 @@ func _build_world() -> void:
 	s_container.name = "Structures"
 	world.add_child(s_container)
 	var village := Village.construct(world, terrain, lay, biome)
-	for sp in village.specs + wild:
+	var all_specs: Array = village.specs + wild
+	if has_cave:
+		all_specs += Caves.build(world, terrain, wrng, cave_pos, cave_yaw, biome)
+	for sp in all_specs:
 		_spawn_structure(s_container, sp, wrng)
 	for s in structures:
 		s.searched.connect(_on_searched)
@@ -246,6 +286,8 @@ func _build_world() -> void:
 	var exclusions: Array = village.exclusions
 	for s in structures:
 		exclusions.append(Vector3(s.position.x, s.position.z, 6.0))
+	if has_cave:
+		exclusions.append(Vector3(cave_pos.x, cave_pos.y, 9.0))
 	exclusions.append(Vector3(player.position.x, player.position.z, 6.0))
 	Vegetation.build(world, terrain, exclusions, wrng.randi(), biome)
 
@@ -262,6 +304,8 @@ func _build_world() -> void:
 	_assign_tools(trng)
 	tools = {map = false, compass = false, spyglass = false,
 		pencil = false, notepad = false, eraser = false, irons = false}
+	has_coffee = false
+	coffee_until_ms = 0
 	trail.clear()
 	spotted.clear()
 	spot_idx = 0
@@ -483,7 +527,8 @@ func _place_player(wrng: RandomNumberGenerator) -> void:
 # --- tools ---------------------------------------------------------------
 
 func _assign_tools(trng: RandomNumberGenerator) -> void:
-	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "eraser", "irons"]
+	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "eraser",
+		"irons", "coffee"]
 	var picks: Array[int] = []
 	while picks.size() < ids.size():
 		var i := trng.randi_range(0, structures.size() - 1)
@@ -497,11 +542,31 @@ func _assign_tools(trng: RandomNumberGenerator) -> void:
 func _collect_tool(s: Interactable) -> void:
 	var id := s.tool_id
 	s.tool_id = ""
-	tools[id] = true
 	feedback.tools_found.append(id)
 	s.spawn_tool_prop(id)
+	if id == "coffee":
+		has_coffee = true
+		hud.toast("You found a cup of coffee — still warm!")
+		return
+	tools[id] = true
 	hud.set_tools(tools)
 	hud.toast("You found the %s!" % ("climbing irons" if id == "irons" else id))
+
+
+func drink_coffee() -> void:
+	if not has_coffee:
+		return
+	has_coffee = false
+	coffee_until_ms = Time.get_ticks_msec() + 120000
+	hud.toast("Caffeinated! Unlimited sprint for 2 minutes.")
+
+
+func coffee_active() -> bool:
+	return Time.get_ticks_msec() < coffee_until_ms
+
+
+func coffee_remaining() -> int:
+	return maxi(0, coffee_until_ms - Time.get_ticks_msec()) / 1000
 
 
 # --- pencil / spotting ---------------------------------------------------
@@ -726,4 +791,28 @@ func _shot_routine() -> void:
 	feedback.open_form()
 	await get_tree().create_timer(0.4).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_feedback.png"))
+	feedback.close_form()
+	# Find a world with a cave and photograph the chamber.
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88]:
+		start_random(sv)
+		var cave_chest: Interactable = null
+		for s in structures:
+			if s.display_name == "cave chest":
+				cave_chest = s
+		if cave_chest:
+			player.cam.make_current()
+			var other: Interactable = null
+			for s in structures:
+				if s.display_name in ["stashed crate", "buried urn"]:
+					other = s
+			var mid := cave_chest.global_position
+			if other:
+				mid = (cave_chest.global_position + other.global_position) * 0.5
+			player.global_position = mid + Vector3(0, 0.4, 0)
+			var cv := cave_chest.global_position - player.global_position
+			player.set_facing(atan2(-cv.x, -cv.z))
+			player.set_target(cave_chest)
+			await get_tree().create_timer(1.0).timeout
+			get_viewport().get_texture().get_image().save_png(dir.path_join("shot_cave.png"))
+			break
 	get_tree().quit()

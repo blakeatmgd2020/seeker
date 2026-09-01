@@ -277,10 +277,12 @@ func _physics_process(delta: float) -> void:
 				atan2(to_axis.x, to_axis.z), minf(1.0, 12.0 * delta))
 
 	# Sprint stamina: Shift drains the meter; it refills after a pause.
+	# Coffee suspends the whole economy for its duration.
+	var caffeinated: bool = main != null and main.coffee_active()
 	var moving := iv.length() > 0.05
-	var sprinting := Input.is_action_pressed("sprint") and moving \
-		and not climbing and stamina > 0.0 and not _stamina_locked
-	if sprinting:
+	var sprinting := Input.is_action_pressed("sprint") and moving and not climbing \
+		and (caffeinated or (stamina > 0.0 and not _stamina_locked))
+	if sprinting and not caffeinated:
 		stamina = maxf(stamina - delta / SPRINT_SECONDS, 0.0)
 		_regen_delay = 1.0
 		if stamina <= 0.0:

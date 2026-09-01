@@ -84,6 +84,18 @@ Seven tools are hidden in seven distinct structures each world:
 - **Climbing irons** — two structures per world are nests atop great trees
   (stone spires in the desert). With the irons, hold **W** against the trunk
   to climb up to them; without, those heights stay out of reach.
+- **Cup of coffee** — a one-use consumable hidden like the tools. Once found,
+  a "Drink coffee" button appears bottom-left: two minutes of unlimited
+  sprint, with a countdown while the caffeine lasts.
+
+## Underground
+
+Not every node is on the surface. Most worlds hide more: the barn may have a
+**cellar** (a stairwell cut through the foundation, a lantern, and an extra
+crate below), and the wilds may hold a **cave** — a boulder mound with a
+stone arch, steps descending into a crystal-lit chamber with two more nodes.
+The search counter counts everything, so "20 / 23" is your hint to look
+below ground.
 
 Tools persist through re-hide rounds but reset with a new day (or day
 restart/travel) — finding them is part of each day's puzzle.

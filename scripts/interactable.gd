@@ -123,6 +123,16 @@ func spawn_tool_prop(id: String) -> void:
 		"eraser":
 			Util.box(holder, Vector3(0.24, 0.09, 0.13), Vector3.ZERO,
 				TexF.plain(Color(0.92, 0.48, 0.55)), false)
+		"coffee":
+			Util.cyl(holder, 0.1, 0.09, 0.14, Vector3.ZERO,
+				TexF.plain(Color(0.93, 0.92, 0.88)), Vector3.ZERO, 12)
+			Util.cyl(holder, 0.085, 0.085, 0.02, Vector3(0, 0.07, 0),
+				TexF.plain(Color(0.28, 0.16, 0.08)), Vector3.ZERO, 12)
+			var handle := TorusMesh.new()
+			handle.inner_radius = 0.035
+			handle.outer_radius = 0.065
+			handle.material = TexF.plain(Color(0.93, 0.92, 0.88))
+			Util.mesh(holder, handle, Vector3(0.12, 0.0, 0), Vector3(90, 0, 0))
 		"irons":
 			for ix in [-0.09, 0.09]:
 				Util.box(holder, Vector3(0.06, 0.16, 0.2), Vector3(ix, 0, 0),

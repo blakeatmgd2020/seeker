@@ -73,10 +73,16 @@ func _process(_delta: float) -> bool:
 		quit(1)
 		return true
 
-	if main.structures.size() != 20:
-		fails.append("expected 20 structures, got %d" % main.structures.size())
+	if main.structures.size() < 20 or main.structures.size() > 23:
+		fails.append("expected 20-23 structures, got %d" % main.structures.size())
 	if main.world.get_node_or_null("Village") == null:
 		fails.append("village missing")
+	# Underground nodes (cellar/cave) must actually be below the terrain.
+	for s in main.structures:
+		if s.display_name in ["cellar crate", "cave chest", "stashed crate", "buried urn"]:
+			var gh: float = main.terrain.height_at(s.position.x, s.position.z)
+			if s.position.y > gh - 1.5:
+				fails.append("underground node '%s' not below terrain" % s.display_name)
 	if main.terrain == null or main.terrain.water_y <= -50.0:
 		fails.append("terrain/water not built")
 	if main.menu == null:
@@ -88,7 +94,7 @@ func _process(_delta: float) -> bool:
 		if not s.tool_id.is_empty():
 			tool_ids.append(s.tool_id)
 	tool_ids.sort()
-	if tool_ids != ["compass", "eraser", "irons", "map", "notepad", "pencil", "spyglass"]:
+	if tool_ids != ["coffee", "compass", "eraser", "irons", "map", "notepad", "pencil", "spyglass"]:
 		fails.append("tool spots wrong: %s" % str(tool_ids))
 	for id in main.tools:
 		if main.tools[id]:
@@ -105,13 +111,13 @@ func _process(_delta: float) -> bool:
 
 	# Day travel rebuilds a valid world.
 	main.load_day(3)
-	if main.structures.size() != 20:
-		fails.append("day 3: expected 20 structures, got %d" % main.structures.size())
+	if main.structures.size() < 20 or main.structures.size() > 23:
+		fails.append("day 3: expected 20-23 structures, got %d" % main.structures.size())
 
 	# Collecting a tool via search.
 	var tool_s: Interactable = null
 	for s in main.structures:
-		if not s.tool_id.is_empty():
+		if not s.tool_id.is_empty() and s.tool_id != "coffee":
 			tool_s = s
 			break
 	var tid: String = tool_s.tool_id
@@ -119,8 +125,21 @@ func _process(_delta: float) -> bool:
 	if not main.tools[tid]:
 		fails.append("tool '%s' not collected on search" % tid)
 	var uncollected := _tool_count(main)
-	if uncollected != 6:
-		fails.append("expected 6 unfound tools after collecting 1, got %d" % uncollected)
+	if uncollected != 7:
+		fails.append("expected 7 unfound items after collecting 1, got %d" % uncollected)
+
+	# Coffee: find it, drink it, buff runs.
+	var coffee_s: Interactable = null
+	for s in main.structures:
+		if s.tool_id == "coffee":
+			coffee_s = s
+			break
+	coffee_s.interact()
+	if not main.has_coffee:
+		fails.append("coffee not collected on search")
+	main.drink_coffee()
+	if main.has_coffee or not main.coffee_active() or main.coffee_remaining() < 110:
+		fails.append("coffee buff did not activate correctly")
 
 	# Spotting: add to list, then searching removes it.
 	var empty_s: Interactable = null
@@ -163,8 +182,9 @@ func _process(_delta: float) -> bool:
 	for s in main.structures:
 		if not s.opened:
 			s.interact()
-	if main.searched_count != 20:
-		fails.append("searched count expected 20, got %d" % main.searched_count)
+	if main.searched_count != main.structures.size():
+		fails.append("searched count expected %d, got %d" % [
+			main.structures.size(), main.searched_count])
 	if not main.hunt_won:
 		fails.append("hunt_won not set after opening all structures")
 
@@ -175,20 +195,44 @@ func _process(_delta: float) -> bool:
 			fails.append("tool '%s' not reset on day change" % id)
 	if not main.trail.is_empty() or not main.spotted.is_empty() or main.hunt_won:
 		fails.append("state not reset on day change")
-	if _tool_count(main) != 7:
-		fails.append("day change should hide 7 fresh tools, got %d" % _tool_count(main))
+	if main.has_coffee or main.coffee_active():
+		fails.append("coffee not reset on day change")
+	if _tool_count(main) != 8:
+		fails.append("day change should hide 8 fresh items, got %d" % _tool_count(main))
 
 	# Random mode: deterministic per seed.
 	main.start_random(12345)
-	if main.game_mode != "random" or main.structures.size() != 20:
-		fails.append("random mode did not build 20 structures")
+	if main.game_mode != "random" or main.structures.size() < 20:
+		fails.append("random mode did not build structures")
 	var rsig := _sig(main)
 	main.start_random(12345)
 	if _sig(main) != rsig:
 		fails.append("random seed 12345 not deterministic")
 	main.start_random(999)
-	if main.structures.size() != 20:
+	if main.structures.size() < 20:
 		fails.append("random seed 999 did not build")
+	# Caves and cellars: must each show up within a handful of seeds, with
+	# their nodes genuinely underground.
+	var cave_found := false
+	var cellar_found := false
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88]:
+		main.start_random(sv)
+		for s in main.structures:
+			if s.display_name in ["cave chest", "stashed crate", "buried urn", "cellar crate"]:
+				var gh: float = main.terrain.height_at(s.position.x, s.position.z)
+				if s.position.y > gh - 1.5:
+					fails.append("seed %d: underground node '%s' not below terrain" % [sv, s.display_name])
+				if s.display_name == "cellar crate":
+					cellar_found = true
+				else:
+					cave_found = true
+		if cave_found and cellar_found:
+			break
+	if not cave_found:
+		fails.append("no cave generated across 8 seeds")
+	if not cellar_found:
+		fails.append("no cellar generated across 8 seeds")
+
 	main.start_daily()
 	if main.game_mode != "daily":
 		fails.append("start_daily did not restore daily mode")
@@ -213,10 +257,10 @@ func _process(_delta: float) -> bool:
 		if main.biome.id != b:
 			fails.append("biome override '%s' not applied" % b)
 			continue
-		if main.structures.size() != 20:
-			fails.append("%s: expected 20 structures, got %d" % [b, main.structures.size()])
-		if _tool_count(main) != 7:
-			fails.append("%s: expected 7 tools, got %d" % [b, _tool_count(main)])
+		if main.structures.size() < 20 or main.structures.size() > 23:
+			fails.append("%s: expected 20-23 structures, got %d" % [b, main.structures.size()])
+		if _tool_count(main) != 8:
+			fails.append("%s: expected 8 hidden items, got %d" % [b, _tool_count(main)])
 		if main.weather_name.is_empty():
 			fails.append("%s: no weather rolled" % b)
 		if main.world.get_node_or_null("Village") == null:

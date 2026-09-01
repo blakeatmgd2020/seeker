@@ -11,6 +11,8 @@ var banner: PanelContainer
 var banner_label: Label
 var stam_bg: ColorRect
 var stam_fill: ColorRect
+var coffee_btn: Button
+var coffee_buff: Label
 var target_frame: PanelContainer
 var target_name: Label
 var target_status: Label
@@ -28,6 +30,18 @@ var big_dim: ColorRect
 var big_map: BigMap
 var _spot_rows: Array[Label] = []
 var _toast_tween: Tween = null
+
+
+func _process(_delta: float) -> void:
+	if main == null or not visible:
+		return
+	coffee_btn.visible = main.has_coffee
+	if main.coffee_active():
+		coffee_buff.visible = true
+		var s: int = main.coffee_remaining()
+		coffee_buff.text = "Caffeinated · %d:%02d" % [s / 60, s % 60]
+	else:
+		coffee_buff.visible = false
 
 
 ## Wires overlays to the game root; call once after both exist.
@@ -424,6 +438,25 @@ func _ready() -> void:
 	stam_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stam_bg.add_child(stam_fill)
 	stam_bg.visible = false
+
+	# coffee: clickable once found, countdown while the buff runs
+	coffee_btn = Button.new()
+	coffee_btn.text = "Drink coffee"
+	coffee_btn.custom_minimum_size = Vector2(160, 42)
+	coffee_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	coffee_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	coffee_btn.position = Vector2(14, -58)
+	coffee_btn.visible = false
+	coffee_btn.pressed.connect(func() -> void:
+		if main:
+			main.drink_coffee())
+	add_child(coffee_btn)
+	coffee_buff = _label(17, Color(0.9, 0.7, 0.4))
+	coffee_buff.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	coffee_buff.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	coffee_buff.position = Vector2(14, -44)
+	coffee_buff.visible = false
+	add_child(coffee_buff)
 
 	prompt = _label(24, Color.WHITE)
 	prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)

@@ -22,7 +22,8 @@ static func layout(terrain: Terrain, wrng: RandomNumberGenerator, biome: Diction
 			var p := _loose_spot(wrng, vc, placed, lpts)
 			loose.append({kind = l[0], display = l[1], x = p.x, z = p.y})
 			lpts.append(p)
-	return {buildings = buildings, well = vc, loose = loose}
+	return {buildings = buildings, well = vc, loose = loose,
+		basement = wrng.randf() < 0.6}
 
 
 static func construct(parent: Node3D, terrain: Terrain, lay: Dictionary,
@@ -39,8 +40,10 @@ static func construct(parent: Node3D, terrain: Terrain, lay: Dictionary,
 			specs.append({kind = "wardrobe", display = "wardrobe", xform = ward_xf})
 			excl.append(Vector3(b.pos.x, b.pos.y, 9.0))
 		else:
-			var chest_xf := _barn(root, terrain, b.pos, b.yaw, style)
-			specs.append({kind = "chest", display = "old chest", xform = chest_xf})
+			var res := _barn(root, terrain, b.pos, b.yaw, style, lay.basement)
+			specs.append({kind = "chest", display = "old chest", xform = res.chest})
+			if res.has("cellar"):
+				specs.append({kind = "crate", display = "cellar crate", xform = res.cellar})
 			excl.append(Vector3(b.pos.x, b.pos.y, 10.0))
 	_well(root, terrain, lay.well, style)
 	excl.append(Vector3(lay.well.x, lay.well.y, 3.0))
@@ -110,7 +113,7 @@ const FOUND_TOP := 0.45
 ## Shared shell: foundation with entry steps, floor, walls with a door gap.
 static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		w: float, d: float, h: float, door_w: float, door_h: float,
-		wall: Material, _foundation_h: float) -> StaticBody3D:
+		wall: Material, _foundation_h: float, stair_hole := false) -> StaticBody3D:
 	var b := StaticBody3D.new()
 	b.collision_layer = 1
 	root.add_child(b)
@@ -118,8 +121,15 @@ static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	b.rotation_degrees.y = yaw
 	var t := 0.25
 	var F := FOUND_TOP
-	Util.box(b, Vector3(w + 0.5, 0.9, d + 0.5), Vector3(0, 0.0, 0), TexF.mat("stone"))
-	Util.box(b, Vector3(w - 0.4, 0.05, d - 0.4), Vector3(0, 0.475, 0), TexF.mat("floor"))
+	if stair_hole:
+		# Foundation and floor with the cellar stairwell cut out (rear-right).
+		_hole_slab(b, -(w + 0.5) * 0.5, (w + 0.5) * 0.5, -(d + 0.5) * 0.5, (d + 0.5) * 0.5,
+			0.7, 4.9, -3.5, -2.3, 0.0, 0.9, TexF.mat("stone"))
+		_hole_slab(b, -(w - 0.4) * 0.5, (w - 0.4) * 0.5, -(d - 0.4) * 0.5, (d - 0.4) * 0.5,
+			0.7, 4.9, -3.5, -2.3, 0.475, 0.05, TexF.mat("floor"))
+	else:
+		Util.box(b, Vector3(w + 0.5, 0.9, d + 0.5), Vector3(0, 0.0, 0), TexF.mat("stone"))
+		Util.box(b, Vector3(w - 0.4, 0.05, d - 0.4), Vector3(0, 0.475, 0), TexF.mat("floor"))
 	Util.box(b, Vector3(w, h, t), Vector3(0, F + h * 0.5, -d * 0.5 + t * 0.5), wall)
 	Util.box(b, Vector3(t, h, d), Vector3(-w * 0.5 + t * 0.5, F + h * 0.5, 0), wall)
 	Util.box(b, Vector3(t, h, d), Vector3(w * 0.5 - t * 0.5, F + h * 0.5, 0), wall)
@@ -212,13 +222,30 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	return b.transform * Transform3D(Basis(), Vector3(1.2, FLOOR_TOP, -2.35))
 
 
+## Cuts a horizontal slab into four boxes around a rectangular hole.
+static func _hole_slab(b: Node3D, rx0: float, rx1: float, rz0: float, rz1: float,
+		hx0: float, hx1: float, hz0: float, hz1: float, yc: float, hgt: float,
+		mat: Material) -> void:
+	var pieces := [
+		[rx0, rx1, rz0, hz0], [rx0, rx1, hz1, rz1],
+		[rx0, hx0, hz0, hz1], [hx1, rx1, hz0, hz1]]
+	for p in pieces:
+		var sx: float = p[1] - p[0]
+		var sz: float = p[3] - p[2]
+		if sx < 0.05 or sz < 0.05:
+			continue
+		Util.box(b, Vector3(sx, hgt, sz),
+			Vector3((p[0] + p[1]) * 0.5, yc, (p[2] + p[3]) * 0.5), mat)
+
+
 static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
-		style: String) -> Transform3D:
+		style: String, with_basement := false) -> Dictionary:
 	var m := _style_mats(style)
 	var w := 10.0
 	var d := 8.0
 	var h := 3.6
-	var b := _shell(root, terrain, pos, yaw, w, d, h, 3.0, 3.0, m.barn_wall, 0.9)
+	var b := _shell(root, terrain, pos, yaw, w, d, h, 3.0, 3.0, m.barn_wall, 0.9,
+		with_basement)
 	b.name = "Barn"
 	var F := FOUND_TOP
 	var fz := d * 0.5 - 0.125
@@ -250,7 +277,39 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	wl.omni_range = 9.0
 	wl.light_energy = 1.3
 	b.add_child(wl)
-	return b.transform * Transform3D(Basis(Vector3.UP, deg_to_rad(-20.0)), Vector3(-3.0, FLOOR_TOP, -2.4))
+
+	var res := {chest = b.transform * Transform3D(
+		Basis(Vector3.UP, deg_to_rad(-20.0)), Vector3(-3.0, FLOOR_TOP, -2.4))}
+	if with_basement:
+		var stone := TexF.mat("stone")
+		# Cellar room: x -3.5..5.0, z -3.9..2.4, floor -3.05, ceiling -0.85.
+		Util.box(b, Vector3(8.8, 0.3, 6.6), Vector3(0.75, -3.2, -0.75), stone)
+		_hole_slab(b, -3.65, 5.15, -4.05, 2.55, 0.7, 5.0, -3.5, -2.3, -1.0, 0.3, stone)
+		Util.box(b, Vector3(0.3, 2.6, 6.8), Vector3(-3.65, -1.95, -0.75), stone)
+		Util.box(b, Vector3(0.3, 2.6, 6.8), Vector3(5.15, -1.95, -0.75), stone)
+		Util.box(b, Vector3(9.2, 2.6, 0.3), Vector3(0.75, -1.95, -4.05), stone)
+		Util.box(b, Vector3(9.2, 2.6, 0.3), Vector3(0.75, -1.95, 2.55), stone)
+		# Stairwell shaft sides sealing floor-to-ceiling gap.
+		Util.box(b, Vector3(4.6, 2.0, 0.3), Vector3(2.85, -0.15, -3.65), stone)
+		Util.box(b, Vector3(4.6, 2.0, 0.3), Vector3(2.85, -0.15, -2.15), stone)
+		# Stairs down (visual steps + invisible ramp).
+		for i in 6:
+			var sx := 1.2 + i * 0.62
+			Util.box(b, Vector3(0.62, 0.22, 1.15),
+				Vector3(sx, 0.4 - (i + 1) * 0.56, -2.9), stone, false)
+		Util.shape_box(b, Vector3(5.4, 0.15, 1.15), Vector3(2.8, -1.28, -2.9),
+			Vector3(0, 0, -43.0))
+		# Lantern and the hidden crate.
+		var cl := OmniLight3D.new()
+		cl.position = Vector3(0.5, -1.5, -0.5)
+		cl.light_color = Color(1.0, 0.8, 0.5)
+		cl.omni_range = 8.0
+		cl.light_energy = 1.2
+		b.add_child(cl)
+		Util.box(b, Vector3(0.2, 0.35, 0.2), Vector3(0.5, -1.15, -0.5), TexF.mat("metal"), false)
+		res.cellar = b.transform * Transform3D(
+			Basis(Vector3.UP, deg_to_rad(35.0)), Vector3(-2.0, -3.05, 0.5))
+	return res
 
 
 static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String) -> void:
