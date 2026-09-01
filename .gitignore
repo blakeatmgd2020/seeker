@@ -1,3 +1,6 @@
 # Godot cache/import artifacts
 .godot/
 *.tmp
+
+# Playtest feedback reports (local only)
+feedback/

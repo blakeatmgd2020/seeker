@@ -26,6 +26,18 @@ the slope; fallen logs lie along the slope contour.
 
 ## Play
 
+The title screen offers two modes:
+
+- **Daily Map** — the date-seeded world (same for the whole day; the Esc
+  menu can travel to the last 7 days).
+- **Random Map** — a fresh seed every time. Type a seed (numbers or words)
+  to replay a specific map; the seed shows on the HUD, and the Esc menu
+  gains "New random map".
+
+Press **F8** anytime to leave a playtest note (Bug / Feel / Idea / Balance
+plus free text). Notes and an end-of-session telemetry summary are written
+to `feedback/session_*.md` (gitignored) for review between sessions.
+
 Double-click `play_seeker.bat`, or:
 
 ```

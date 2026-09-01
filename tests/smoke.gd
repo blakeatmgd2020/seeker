@@ -45,6 +45,15 @@ func _process(_delta: float) -> bool:
 		print("FAIL: Main node missing or script failed to compile")
 		quit(1)
 		return true
+	# The game boots to the title screen; enter Daily mode for the suite.
+	if main.world == null:
+		if main.title == null or not main.title.visible:
+			fails.append("title screen not shown at boot")
+		main.start_daily()
+	if main.world == null:
+		print("FAIL: start_daily did not build a world")
+		quit(1)
+		return true
 
 	if main.structures.size() != 20:
 		fails.append("expected 20 structures, got %d" % main.structures.size())
@@ -191,6 +200,35 @@ func _process(_delta: float) -> bool:
 			fresh += 1
 	if fresh != 6:
 		fails.append("day change should hide 6 fresh tools, got %d" % fresh)
+
+	# Random mode: deterministic per seed, distinct seeds build fine.
+	main.start_random(12345)
+	if main.game_mode != "random" or main.structures.size() != 20:
+		fails.append("random mode did not build 20 structures")
+	var rh := _holder_idx(main)
+	var rn: String = main.tag_number
+	main.start_random(12345)
+	if _holder_idx(main) != rh or main.tag_number != rn:
+		fails.append("random seed 12345 not deterministic")
+	main.start_random(999)
+	if main.structures.size() != 20:
+		fails.append("random seed 999 did not build")
+	main.start_daily()
+	if main.game_mode != "daily":
+		fails.append("start_daily did not restore daily mode")
+
+	# Feedback: note + summary land in the session report file.
+	main.feedback.add_note("bug", "smoke test note")
+	main.feedback.write_summary()
+	var fa := FileAccess.open(main.feedback._file_abs, FileAccess.READ)
+	if fa == null:
+		fails.append("feedback report file missing")
+	else:
+		var ftxt := fa.get_as_text()
+		fa.close()
+		if ftxt.find("smoke test note") == -1 or ftxt.find("Session summary") == -1:
+			fails.append("feedback report missing note or summary")
+		DirAccess.remove_absolute(main.feedback._file_abs)
 
 	# Every biome must generate a valid world (20 structures, 1 tag, 3 tools,
 	# a weather roll, and a village).

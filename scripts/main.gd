@@ -15,6 +15,10 @@ var terrain: Terrain
 var player: Player
 var hud: Hud
 var menu: GameMenu
+var title: TitleScreen
+var feedback: Feedback
+var game_mode := "daily"
+var random_seed_val := 1
 var world: Node3D = null
 var structures: Array[Interactable] = []
 var searched_count := 0
@@ -54,9 +58,100 @@ func _ready() -> void:
 	menu = GameMenu.new()
 	menu.main = self
 	add_child(menu)
-	load_day(0)
+	title = TitleScreen.new()
+	title.main = self
+	add_child(title)
+	feedback = Feedback.new()
+	feedback.main = self
+	add_child(feedback)
+	player.process_mode = Node.PROCESS_MODE_DISABLED
+	player.visible = false
+	hud.visible = false
+	title.refresh()
 	if OS.get_cmdline_user_args().has("--shot"):
 		_shot_routine()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and feedback:
+		feedback.write_summary()
+
+
+# --- game modes ----------------------------------------------------------
+
+func start_daily() -> void:
+	game_mode = "daily"
+	_enter_game()
+	load_day(0)
+
+
+func start_random(sv: int) -> void:
+	game_mode = "random"
+	random_seed_val = maxi(absi(sv) % 2147483647, 1)
+	day_offset = 0
+	round_num = 1
+	_enter_game()
+	_build_world()
+
+
+## Seed field accepts numbers or words (words hash); empty rolls fresh.
+func start_random_from_text(t: String) -> void:
+	t = t.strip_edges()
+	if t.is_empty():
+		new_random_map()
+	elif t.is_valid_int():
+		start_random(int(t))
+	else:
+		start_random(t.hash())
+
+
+func new_random_map() -> void:
+	var r := RandomNumberGenerator.new()
+	r.randomize()
+	start_random(r.randi())
+
+
+func restart_current() -> void:
+	if game_mode == "random":
+		start_random(random_seed_val)
+	else:
+		load_day(day_offset)
+
+
+func return_to_title() -> void:
+	player.set_target(null)
+	if _weather_node and is_instance_valid(_weather_node):
+		_weather_node.queue_free()
+	_weather_node = null
+	if world:
+		world.free()
+		world = null
+	structures.clear()
+	spotted.clear()
+	trail.clear()
+	player.process_mode = Node.PROCESS_MODE_DISABLED
+	player.visible = false
+	hud.visible = false
+	title.visible = true
+	title.refresh()
+
+
+func quit_game() -> void:
+	feedback.write_summary()
+	get_tree().quit()
+
+
+func _enter_game() -> void:
+	title.visible = false
+	hud.visible = true
+	player.visible = true
+	player.process_mode = Node.PROCESS_MODE_INHERIT
+
+
+func world_title() -> String:
+	if game_mode == "random":
+		return "Random Map · seed %d" % random_seed_val
+	return day_label(day_offset)
 
 
 # --- daily seeds ---------------------------------------------------------
@@ -68,6 +163,12 @@ func _day_index(offset: int) -> int:
 
 func _day_seed(offset: int) -> int:
 	return (_day_index(offset) * 2654435761) % 2147483647
+
+
+func _world_seed() -> int:
+	if game_mode == "random":
+		return random_seed_val
+	return _day_seed(day_offset)
 
 
 func day_label(offset: int) -> String:
@@ -100,7 +201,7 @@ func _build_world() -> void:
 	searched_count = 0
 
 	var wrng := RandomNumberGenerator.new()
-	wrng.seed = _day_seed(day_offset)
+	wrng.seed = _world_seed()
 	var ids := Biomes.all_ids()
 	var biome_id: String = ids[wrng.randi_range(0, ids.size() - 1)]
 	if debug_biome != "" and debug_biome in ids:
@@ -150,7 +251,7 @@ func _build_world() -> void:
 	Vegetation.build(world, terrain, exclusions, wrng.randi(), biome)
 
 	var trng := RandomNumberGenerator.new()
-	trng.seed = _day_seed(day_offset) ^ 0x5DEECE66
+	trng.seed = _world_seed() ^ 0x5DEECE66
 	_assign_tag(trng, -1)
 	_assign_tools(trng)
 	tools = {map = false, compass = false, spyglass = false,
@@ -164,6 +265,9 @@ func _build_world() -> void:
 	hud.set_count(0, structures.size())
 	hud.clear_found()
 	_update_day_info()
+	if feedback:
+		feedback.log_world("%s · %s · %s · %s" % [world_title(), biome.label,
+			mood_name, weather_name])
 
 
 ## Picks wild structure kinds from the biome pool (weighted, padded/trimmed
@@ -397,6 +501,7 @@ func _collect_tool(s: Interactable) -> void:
 	var id := s.tool_id
 	s.tool_id = ""
 	tools[id] = true
+	feedback.tools_found.append(id)
 	s.spawn_tool_prop(id)
 	hud.set_tools(tools)
 	hud.toast("You found the %s!" % id)
@@ -406,6 +511,7 @@ func rehide_tag() -> void:
 	if structures.is_empty():
 		return
 	round_num += 1
+	feedback.rounds += 1
 	var prev := -1
 	for i in structures.size():
 		if structures[i].has_item:
@@ -485,18 +591,20 @@ func _on_searched(s: Interactable) -> void:
 	if s.spotted:
 		_remove_spot(s)
 	searched_count += 1
+	feedback.searches += 1
 	hud.set_count(searched_count, structures.size())
 	var had_tool := not s.tool_id.is_empty()
 	if had_tool:
 		_collect_tool(s)
 	if s.has_item:
+		feedback.finds += 1
 		hud.found(tag_number)
 	elif not had_tool:
 		hud.toast("Nothing in the %s." % s.display_name)
 
 
 func _update_day_info() -> void:
-	var txt := "%s · %s · %s" % [day_label(day_offset), biome.label, mood_name]
+	var txt := "%s · %s · %s" % [world_title(), biome.label, mood_name]
 	if weather_id != "clear":
 		txt += " · " + weather_name
 	txt += " · Round %d" % round_num
@@ -509,7 +617,7 @@ func _setup_input() -> void:
 	var binds := [["move_forward", KEY_W], ["move_back", KEY_S],
 		["move_left", KEY_A], ["move_right", KEY_D], ["jump", KEY_SPACE],
 		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z],
-		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M]]
+		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M], ["feedback", KEY_F8]]
 	for b in binds:
 		if InputMap.has_action(b[0]):
 			continue
@@ -581,6 +689,12 @@ func _add_bounds() -> void:
 
 
 func _shot_routine() -> void:
+	var dir0 := OS.get_environment("HH_SHOT_DIR")
+	if dir0.is_empty():
+		dir0 = "user://"
+	await get_tree().create_timer(0.6).timeout
+	get_viewport().get_texture().get_image().save_png(dir0.path_join("shot_title.png"))
+	start_daily()
 	var nearest: Interactable = null
 	var best := 1e9
 	for s in structures:
@@ -629,4 +743,8 @@ func _shot_routine() -> void:
 	menu.open()
 	await get_tree().create_timer(0.5).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_menu.png"))
+	menu.close()
+	feedback.open_form()
+	await get_tree().create_timer(0.4).timeout
+	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_feedback.png"))
 	get_tree().quit()

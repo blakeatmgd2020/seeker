@@ -378,7 +378,7 @@ class SpyOverlay:
 
 func _ready() -> void:
 	var help := _label(14, Color(1, 1, 1, 0.75))
-	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Shift sprint · Space jump\nZ spyglass · M map · Tab cycle spots · Esc deselect / menu"
+	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Shift sprint · Space jump\nZ spyglass · M map · Tab cycle spots · F8 feedback · Esc deselect / menu"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(14, 8)
 	add_child(help)

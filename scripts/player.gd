@@ -31,6 +31,8 @@ var target: Interactable = null
 
 var facing := 0.0
 var cam_yaw := 0.0
+var dist_walked := 0.0
+var _last_walk_pos := Vector2.ZERO
 var _lmb := false
 var _rmb := false
 var _dragging := false
@@ -260,6 +262,11 @@ func _physics_process(delta: float) -> void:
 	velocity.x = lerpf(velocity.x, dir.x * sp, minf(1.0, 10.0 * delta))
 	velocity.z = lerpf(velocity.z, dir.z * sp, minf(1.0, 10.0 * delta))
 	move_and_slide()
+	var wp := Vector2(global_position.x, global_position.z)
+	var step := wp.distance_to(_last_walk_pos)
+	if step < 5.0:
+		dist_walked += step
+	_last_walk_pos = wp
 
 	body_vis.rotation.y = lerp_angle(body_vis.rotation.y, facing + PI, minf(1.0, 14.0 * delta))
 

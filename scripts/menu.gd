@@ -9,6 +9,9 @@ var day_info: Label
 var day_buttons: Array[Button] = []
 var confirm: ConfirmationDialog
 var _pending := Callable()
+var _restart_btn: Button
+var _random_btn: Button
+var _travel_label: Label
 
 
 func _init() -> void:
@@ -52,15 +55,20 @@ func _ready() -> void:
 	_btn(v, "Re-hide the tag…").pressed.connect(func() -> void:
 		_ask("Close every structure and hide the tag somewhere new?",
 			func() -> void: main.rehide_tag()))
-	_btn(v, "Restart this day…").pressed.connect(func() -> void:
-		_ask("Regenerate this day's world from scratch?",
-			func() -> void: main.load_day(main.day_offset)))
+	_restart_btn = _btn(v, "Restart this day…")
+	_restart_btn.pressed.connect(func() -> void:
+		_ask("Regenerate this world from scratch?",
+			func() -> void: main.restart_current()))
+	_random_btn = _btn(v, "New random map…")
+	_random_btn.pressed.connect(func() -> void:
+		_ask("Generate a fresh random map?",
+			func() -> void: main.new_random_map()))
 	v.add_child(HSeparator.new())
 
-	var lbl := Label.new()
-	lbl.text = "Travel to a day:"
-	lbl.add_theme_font_size_override("font_size", 15)
-	v.add_child(lbl)
+	_travel_label = Label.new()
+	_travel_label.text = "Travel to a day:"
+	_travel_label.add_theme_font_size_override("font_size", 15)
+	v.add_child(_travel_label)
 	for i in 7:
 		var off := i
 		var b := _btn(v, "")
@@ -69,8 +77,11 @@ func _ready() -> void:
 				func() -> void: main.load_day(off)))
 		day_buttons.append(b)
 	v.add_child(HSeparator.new())
+	_btn(v, "Return to title…").pressed.connect(func() -> void:
+		_ask("Leave this world and return to the title screen?",
+			func() -> void: main.return_to_title()))
 	_btn(v, "Quit…").pressed.connect(func() -> void:
-		_ask("Quit Seeker?", func() -> void: get_tree().quit()))
+		_ask("Quit Seeker?", func() -> void: main.quit_game()))
 
 	confirm = ConfirmationDialog.new()
 	confirm.title = "Confirm"
@@ -107,10 +118,15 @@ func open() -> void:
 		main.player.release_drag()
 	if main:
 		day_info.text = "%s · %s · %s · Round %d" % [
-			main.day_label(main.day_offset), main.biome.label, main.mood_name, main.round_num]
+			main.world_title(), main.biome.label, main.mood_name, main.round_num]
+		var daily: bool = main.game_mode == "daily"
+		_restart_btn.text = "Restart this day…" if daily else "Restart this map…"
+		_random_btn.visible = not daily
+		_travel_label.visible = daily
 		for i in 7:
+			day_buttons[i].visible = daily
 			day_buttons[i].text = main.day_label(i)
-			day_buttons[i].disabled = i == main.day_offset
+			day_buttons[i].disabled = daily and i == main.day_offset
 
 
 func close() -> void:
@@ -121,6 +137,8 @@ func close() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
+		if main and main.world == null:
+			return
 		if visible:
 			close()
 		elif main and main.hud and main.hud.big_map_open():
