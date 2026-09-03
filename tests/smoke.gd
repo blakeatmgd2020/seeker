@@ -205,6 +205,28 @@ func _process(_delta: float) -> bool:
 	if _tool_count(main) != 8:
 		fails.append("day change should hide 8 fresh items, got %d" % _tool_count(main))
 
+	# Feedback round 3: arrow-turn actions, Dev Note button, birds, winded UI.
+	if not (InputMap.has_action("turn_left") and InputMap.has_action("turn_right")):
+		fails.append("arrow-turn input actions missing")
+	var dev_btn := false
+	for ch in main.feedback.get_children():
+		if ch is Button and ch.text == "Dev Note":
+			dev_btn = ch.visible
+	if not dev_btn:
+		fails.append("Dev Note button missing or hidden")
+	var birds = main.world.get_node_or_null("Birds")
+	if birds == null or birds.get_child_count() < 3:
+		fails.append("birds missing from world")
+	main.hud.set_stamina(0.2, true, 42.0)
+	if not main.hud.winded_label.visible \
+			or main.hud.winded_label.text.find("Winded") == -1:
+		fails.append("winded countdown label not shown")
+	if main.hud.stam_fill.size.x > 180.0 * 0.5:
+		fails.append("winded bar should refill from lock progress, not stamina")
+	main.hud.set_stamina(1.0, false)
+	if main.hud.winded_label.visible:
+		fails.append("winded label did not clear")
+
 	# Random mode: deterministic per seed.
 	main.start_random(12345)
 	if main.game_mode != "random" or main.structures.size() < 20:

@@ -21,6 +21,7 @@ var _summary_written := false
 var _prev_paused := false
 
 var _dim: ColorRect
+var _btn: Button
 var _panel: PanelContainer
 var _notes_panel: PanelContainer
 var _notes_label: Label
@@ -156,6 +157,21 @@ func _ready() -> void:
 		_notes_panel.visible = false
 		_panel.visible = true)
 	nv.add_child(back)
+
+	# Always-on Dev Note button in the top-right corner — same as F8.
+	_btn = Button.new()
+	_btn.text = "Dev Note"
+	_btn.custom_minimum_size = Vector2(104, 26)
+	_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_btn.position = Vector2(-118, 6)
+	_btn.focus_mode = Control.FOCUS_NONE
+	_btn.pressed.connect(func() -> void:
+		if _panel.visible or _notes_panel.visible:
+			close_form()
+		else:
+			open_form())
+	add_child(_btn)
 
 
 func _unhandled_input(event: InputEvent) -> void:

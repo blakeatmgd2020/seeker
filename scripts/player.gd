@@ -22,6 +22,7 @@ const SPY_AIM_DEG := 2.3      ## how tightly a node must be centered to log it
 const SPRINT_SECONDS := 5.5   ## full-to-empty sprint time
 const STAMINA_REGEN := 3.5    ## empty-to-full seconds (after a short delay)
 const CLIMB_SPEED := 3.2
+const TURN_SPEED := 2.6       ## keyboard turn rate, rad/s (~150°/s)
 
 var hud: Hud = null
 var main: Node = null
@@ -282,6 +283,12 @@ func _physics_process(delta: float) -> void:
 			body_vis.rotation.y = lerp_angle(body_vis.rotation.y,
 				atan2(to_axis.x, to_axis.z), minf(1.0, 12.0 * delta))
 
+	# Arrow keys: keyboard turning — character and camera swing together.
+	var turn := Input.get_axis("turn_right", "turn_left")
+	if turn != 0.0 and not climbing:
+		facing += turn * TURN_SPEED * delta
+		cam_yaw += turn * TURN_SPEED * delta
+
 	# Sprint stamina: Shift drains the meter; it refills after a pause.
 	# Coffee suspends the whole economy for its duration.
 	var caffeinated: bool = main != null and main.coffee_active()
@@ -304,7 +311,10 @@ func _physics_process(delta: float) -> void:
 	if _stamina_locked and Time.get_ticks_msec() >= _lock_until_ms:
 		_stamina_locked = false
 	if hud:
-		hud.set_stamina(stamina, _stamina_locked)
+		var lock_left := 0.0
+		if _stamina_locked:
+			lock_left = maxf(0.0, (_lock_until_ms - Time.get_ticks_msec()) / 1000.0)
+		hud.set_stamina(stamina, _stamina_locked, lock_left)
 
 	if not climbing:
 		if not is_on_floor():

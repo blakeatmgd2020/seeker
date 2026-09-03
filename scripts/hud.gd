@@ -13,6 +13,7 @@ var stam_bg: ColorRect
 var stam_fill: ColorRect
 var coffee_btn: Button
 var coffee_buff: Label
+var winded_label: Label
 var _pulse := 0.0
 var target_frame: PanelContainer
 var target_name: Label
@@ -45,6 +46,7 @@ func _process(delta: float) -> void:
 		coffee_buff.visible = true
 		coffee_buff.text = "Caffeinated · %d:%02d" % [s / 60, s % 60]
 		stam_bg.visible = true
+		stam_bg.color = Color(0, 0, 0, 0.55)
 		stam_fill.size.x = 180.0 * (main.coffee_remaining() / 120.0)
 		var glow := 0.5 + 0.5 * sin(_pulse * 6.0)
 		stam_fill.color = Color(1.0, 0.85, 0.2).lerp(Color(1.0, 1.0, 0.55), glow)
@@ -208,9 +210,12 @@ class MiniOverlay:
 			if not is_instance_valid(s):
 				continue
 			if paper:
-				# The notepad records only what you've logged.
-				if s.spotted:
-					var pn := _to_px(Vector2(s.global_position.x, s.global_position.z))
+				# The notepad records what you've logged — and crosses off
+				# every node you've searched.
+				var pn := _to_px(Vector2(s.global_position.x, s.global_position.z))
+				if s.opened:
+					_cross(pn, 3.2, Color(0.42, 0.10, 0.07, 0.9))
+				elif s.spotted:
 					draw_circle(pn, 3.2, Color(0.25, 0.65, 0.25))
 					if s == sel:
 						draw_arc(pn, 5.5, 0.0, TAU, 16, Color(0.25, 0.65, 0.25), 1.4)
@@ -219,13 +224,17 @@ class MiniOverlay:
 				continue
 			var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
 			if s.opened:
-				draw_circle(p, 2.5, Color(0.55, 0.55, 0.55, 0.8))
+				_cross(p, 3.2, Color(0.42, 0.10, 0.07, 0.9))
 			elif s.spotted:
 				draw_circle(p, 3.2, Color(0.3, 0.95, 0.35))
 				if s == sel:
 					draw_arc(p, 5.5, 0.0, TAU, 16, Color(0.3, 0.95, 0.35), 1.4)
 			else:
 				draw_circle(p, 3.0, Color(1.0, 0.82, 0.25))
+
+	func _cross(p: Vector2, r: float, col: Color) -> void:
+		draw_line(p + Vector2(-r, -r), p + Vector2(r, r), col, 1.6)
+		draw_line(p + Vector2(-r, r), p + Vector2(r, -r), col, 1.6)
 
 	func _arrow(pp: Vector2, f: float, col := Color.WHITE) -> void:
 		var dirv := Vector2(-sin(f), -cos(f))
@@ -312,6 +321,10 @@ class BigMap:
 	func _world_of(local: Vector2) -> Vector2:
 		return Vector2(local.x / size.x * 500.0 - 250.0, local.y / size.y * 500.0 - 250.0)
 
+	func _cross(p: Vector2, r: float, col: Color) -> void:
+		draw_line(p + Vector2(-r, -r), p + Vector2(r, r), col, 2.2)
+		draw_line(p + Vector2(-r, r), p + Vector2(r, -r), col, 2.2)
+
 	func _draw() -> void:
 		if main == null:
 			return
@@ -344,7 +357,9 @@ class BigMap:
 					continue
 				var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
 				if paper:
-					if s.spotted:
+					if s.opened:
+						_cross(p, 5.0, Color(0.42, 0.10, 0.07, 0.9))
+					elif s.spotted:
 						draw_circle(p, 5.0, Color(0.25, 0.65, 0.25))
 						if s == sel:
 							draw_arc(p, 9.0, 0.0, TAU, 20, Color(0.25, 0.65, 0.25), 2.0)
@@ -352,7 +367,7 @@ class BigMap:
 				if not s.seen:
 					continue
 				if s.opened:
-					draw_circle(p, 4.0, Color(0.55, 0.55, 0.55, 0.8))
+					_cross(p, 5.0, Color(0.42, 0.10, 0.07, 0.9))
 				elif s.spotted:
 					draw_circle(p, 5.0, Color(0.3, 0.95, 0.35))
 					if s == sel:
@@ -478,7 +493,7 @@ class SpyOverlay:
 
 func _ready() -> void:
 	var help := _label(14, Color(1, 1, 1, 0.75))
-	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Shift sprint · Space jump\nZ spyglass · M map · N notepad · Tab cycle spots · F8 feedback · Esc deselect / menu"
+	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Arrows turn/walk · Shift sprint · Space jump\nZ spyglass · M map · N notepad · Tab cycle spots · F8 / Dev Note feedback · Esc deselect / menu"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(14, 8)
 	add_child(help)
@@ -491,7 +506,7 @@ func _ready() -> void:
 	counter = _label(20, Color.WHITE)
 	counter.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	counter.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	counter.position = Vector2(-250, 10)
+	counter.position = Vector2(-370, 10)  # clear of the Dev Note corner button
 	counter.size = Vector2(236, 30)
 	counter.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(counter)
@@ -532,6 +547,16 @@ func _ready() -> void:
 	coffee_buff.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coffee_buff.visible = false
 	add_child(coffee_buff)
+
+	# winded recovery countdown (sits where the coffee buff text does; the
+	# two never show together — caffeine suspends the stamina economy)
+	winded_label = _label(15, Color(1.0, 0.55, 0.45))
+	winded_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	winded_label.position = Vector2(-90, -72)
+	winded_label.size = Vector2(180, 18)
+	winded_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	winded_label.visible = false
+	add_child(winded_label)
 
 	prompt = _label(24, Color.WHITE)
 	prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -730,17 +755,27 @@ func set_day_info(text: String) -> void:
 	day_label.text = text
 
 
-func set_stamina(v: float, locked: bool) -> void:
+func set_stamina(v: float, locked: bool, lock_left := 0.0) -> void:
 	if main and main.coffee_active():
+		winded_label.visible = false
 		return  # _process owns the bar while caffeinated
 	stam_bg.visible = v < 0.999 or locked
-	stam_fill.size.x = 180.0 * v
+	winded_label.visible = locked
 	if locked:
-		stam_fill.color = Color(0.85, 0.3, 0.25)
-	elif v < 0.3:
-		stam_fill.color = Color(0.9, 0.7, 0.25)
-	else:
+		# Winded: the bar goes red and refills with green over the recovery
+		# minute, with the remaining time counted down above it.
+		var t := clampf(1.0 - lock_left / 60.0, 0.0, 1.0)
+		stam_bg.color = Color(0.42, 0.07, 0.05, 0.8)
+		stam_fill.size.x = 180.0 * t
 		stam_fill.color = Color(0.4, 0.85, 0.35)
+		winded_label.text = "Winded · %d s" % int(ceilf(lock_left))
+	else:
+		stam_bg.color = Color(0, 0, 0, 0.55)
+		stam_fill.size.x = 180.0 * v
+		if v < 0.3:
+			stam_fill.color = Color(0.9, 0.7, 0.25)
+		else:
+			stam_fill.color = Color(0.4, 0.85, 0.35)
 
 
 func win(total: int, time_str: String) -> void:

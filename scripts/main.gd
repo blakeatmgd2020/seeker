@@ -402,6 +402,13 @@ func _build_world() -> void:
 			climbables.append({axis = Vector3(s.position.x, 0, s.position.z),
 				top_y = s.position.y})
 
+	# Small birds commute between the nests — follow one to find them.
+	var nest_tops: Array = []
+	for c in climbables:
+		nest_tops.append(Vector3(c.axis.x, c.top_y + 0.55, c.axis.z))
+	if nest_tops.size() >= 2:
+		Birds.build(world, terrain, wrng, nest_tops)
+
 	# Tool locations are deterministic per seed.
 	var trng := RandomNumberGenerator.new()
 	trng.seed = _world_seed() ^ 0x5DEECE66
@@ -767,7 +774,7 @@ func _setup_input() -> void:
 		["move_left", KEY_A], ["move_right", KEY_D], ["jump", KEY_SPACE],
 		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z],
 		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M], ["toggle_pad", KEY_N],
-		["feedback", KEY_F8]]
+		["feedback", KEY_F8], ["turn_left", KEY_LEFT], ["turn_right", KEY_RIGHT]]
 	for b in binds:
 		if InputMap.has_action(b[0]):
 			continue
@@ -775,6 +782,11 @@ func _setup_input() -> void:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = b[1]
 		InputMap.action_add_event(b[0], ev)
+	# Up/Down arrows double as walk keys alongside W/S.
+	for ex in [["move_forward", KEY_UP], ["move_back", KEY_DOWN]]:
+		var ev := InputEventKey.new()
+		ev.physical_keycode = ex[1]
+		InputMap.action_add_event(ex[0], ev)
 
 
 func _setup_environment() -> void:
@@ -871,7 +883,9 @@ func _shot_routine() -> void:
 	for s in structures:
 		s.seen = true
 	add_spot(nearest)
-	player.stamina = 0.45
+	player.stamina = 0.2
+	player._stamina_locked = true
+	player._lock_until_ms = Time.get_ticks_msec() + 42000
 	# Fake a little wandering so the trail ink shows in screenshots.
 	var pw := Vector2(player.position.x, player.position.z)
 	for i in 30:
@@ -911,6 +925,29 @@ func _shot_routine() -> void:
 	cam.current = true
 	await get_tree().create_timer(0.8).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_aerial.png"))
+	# Birds at (or between) the nests.
+	var nest_s: Interactable = null
+	for s in structures:
+		if s.kind == "nest":
+			nest_s = s
+			break
+	if nest_s:
+		var bcam := Camera3D.new()
+		add_child(bcam)
+		bcam.position = nest_s.global_position + Vector3(6.5, 1.2, 6.5)
+		bcam.look_at(nest_s.global_position + Vector3(0, 0.4, 0))
+		bcam.current = true
+		await get_tree().create_timer(0.6).timeout
+		get_viewport().get_texture().get_image().save_png(dir.path_join("shot_birds.png"))
+	player.cam.make_current()
+	# Search a few nodes so the X marks show on the map shot.
+	var opened := 0
+	for s in structures:
+		if not s.opened and s != nearest:
+			s.interact()
+			opened += 1
+			if opened >= 3:
+				break
 	hud.toggle_big_map()
 	await get_tree().create_timer(0.5).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_map.png"))
