@@ -153,6 +153,8 @@ static func _wardrobe(s: Interactable) -> void:
 	s.anim_pivots = [pv_l, pv_r]
 	s.anim_rots = [Vector3(0, -115, 0), Vector3(0, 115, 0)]
 	s.item_anchor = Vector3(0, 1.25, 0.2)
+	# Wardrobes stand against walls; squash the ring so it stays indoors.
+	s.ring_squash = Vector2(1.0, 0.38)
 
 
 static func _log(s: Interactable, biome_id: String) -> void:

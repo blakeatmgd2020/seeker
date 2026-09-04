@@ -18,6 +18,7 @@ var sink_scale := Vector3(1, 0.08, 1)
 var sink_shapes: Array[CollisionShape3D] = []
 var item_anchor := Vector3(0, 1.0, 0)
 var ring_radius := 1.0
+var ring_squash := Vector2.ONE  ## x/z scale so rings fit against walls
 var tool_id := ""    ## which tool is inside ("map", "pencil", ...), if any
 var extinguish_node: GPUParticles3D = null  ## stops emitting when searched
 var seen := false    ## discovered (walked near or spyglassed)
@@ -42,7 +43,7 @@ func set_selected(on: bool) -> void:
 		tm.material = m
 		_ring = MeshInstance3D.new()
 		_ring.mesh = tm
-		_ring.scale = Vector3(1, 0.3, 1)
+		_ring.scale = Vector3(ring_squash.x, 0.3, ring_squash.y)
 		_ring.position = Vector3(0, 0.07, 0)
 		_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_ring)
@@ -124,9 +125,13 @@ func spawn_tool_prop(id: String) -> void:
 				TexF.plain(Color(0.93, 0.92, 0.86)), false)
 			Util.box(holder, Vector3(0.3, 0.06, 0.06), Vector3(0, 0.005, -0.18),
 				TexF.mat("metal"), false)
-		"eraser":
-			Util.box(holder, Vector3(0.24, 0.09, 0.13), Vector3.ZERO,
-				TexF.plain(Color(0.92, 0.48, 0.55)), false)
+		"rope":
+			var coil := TorusMesh.new()
+			coil.inner_radius = 0.07
+			coil.outer_radius = 0.15
+			coil.material = TexF.plain(Color(0.55, 0.42, 0.25))
+			for cy in [-0.05, 0.0, 0.05]:
+				Util.mesh(holder, coil, Vector3(0, cy, 0))
 		"coffee":
 			Util.cyl(holder, 0.1, 0.09, 0.14, Vector3.ZERO,
 				TexF.plain(Color(0.93, 0.92, 0.88)), Vector3.ZERO, 12)

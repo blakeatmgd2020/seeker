@@ -9,7 +9,8 @@ const FLAP_RATE := 22.0  ## wing-beat angular speed, rad/s
 
 var main: Node = null
 var terrain: Terrain = null
-var perches: Array = []        ## Vector3 nest-top perch points
+var perches: Array = []        ## Vector3 nest-top perch points (home)
+var spots: Array = []          ## rooftop / treetop loitering perches
 var _flock: Array = []
 var _rng := RandomNumberGenerator.new()
 var _time := 0.0
@@ -78,10 +79,15 @@ func _perch_offset() -> Vector3:
 	return Vector3(_rng.randf_range(-0.5, 0.5), 0.2, _rng.randf_range(-0.5, 0.5))
 
 
-func _launch(bd: Dictionary) -> void:
-	# Fly to a different nest along an arcing, laterally-bowed path.
+func _launch(bd: Dictionary, nest_chance := 0.55) -> void:
+	# Fly to a different perch along an arcing, laterally-bowed path.
+	# Birds only sometimes head home to a nest — the rest loiter on
+	# rooftops and treetops.
+	var pool: Array = perches
+	if not spots.is_empty() and _rng.randf() > nest_chance:
+		pool = spots
 	var others: Array = []
-	for p in perches:
+	for p in pool:
 		if p.distance_to(bd.at) > 1.0:
 			others.append(p)
 	if others.is_empty():
@@ -109,10 +115,12 @@ func _process(delta: float) -> void:
 			# Folded wings, the odd idle shuffle.
 			bd.wl.rotation.z = 0.95
 			bd.wr.rotation.z = -0.95
-			# A seeker climbing too close flushes the bird to another nest.
+			# A seeker too close flushes the bird — but it retreats to a
+			# nest less than half the time, so following pays off only
+			# sometimes.
 			if main and main.player \
 					and main.player.global_position.distance_to(bd.node.position) < 7.0:
-				_launch(bd)
+				_launch(bd, 0.4)
 				bd.dur *= 0.6  # panicked burst
 				continue
 			bd.timer -= delta

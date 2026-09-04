@@ -4,8 +4,10 @@ class_name Vegetation
 ## decor (bushes, flowers, litter) hugs the ground; boulders get collision.
 
 
+## Returns a handful of treetop points birds can perch on.
 static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
-		biome: Dictionary) -> void:
+		biome: Dictionary) -> Array:
+	var perches: Array = []
 	var rng := RandomNumberGenerator.new()
 	rng.seed = sd
 	var fnoise := FastNoiseLite.new()
@@ -60,6 +62,8 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			var sink := terrain.drop_under(Vector2(x, z), 1.0) * 0.8 + 0.2
 			var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(sc, sc, sc))
 			xforms.append(Transform3D(basis, Vector3(x, h - sink, z)))
+			if xforms.size() % 25 == 1 and perches.size() < 14:
+				perches.append(Vector3(x, h - sink + 4.4 * sc, z))
 			var cs := CollisionShape3D.new()
 			var sh := CylinderShape3D.new()
 			sh.radius = ts[2] * sc
@@ -129,6 +133,7 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 		cs.shape = sh
 		cs.position = Vector3(x, h + sc * 0.2 - sink, z)
 		cols.add_child(cs)
+	return perches
 
 
 static func _scatter_decor(root: Node3D, terrain: Terrain, exclusions: Array,

@@ -46,7 +46,7 @@ void fragment() {
 }
 "
 
-const VERSION := "r4 · 2026-09-04"
+const VERSION := "r5 · 2026-09-04"
 const WEEKDAYS := ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTHS := ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const STRUCTURE_TOTAL := 20
@@ -71,10 +71,12 @@ var mood_name := ""
 var weather_id := "clear"
 var weather_name := "Clear"
 var tools := {map = false, compass = false, spyglass = false,
-	pencil = false, notepad = false, eraser = false, irons = false}
+	pencil = false, notepad = false, irons = false, rope = false}
 var has_coffee := false
 var coffee_until_ms := 0
+var well_drops: Array = []
 var trail: Array[Vector2] = []
+var full_path: Array[Vector2] = []
 var spotted: Array[Interactable] = []
 var spot_idx := 0
 var debug_biome := ""
@@ -330,9 +332,14 @@ func _build_world() -> void:
 		if b.basement:
 			# Open the terrain under the central cellar stairwell. Removal can
 			# reach rect + ~3 m; the widened foundation slab covers all of it.
-			terrain.add_hole_rect(p, Vector2(3.4, 0.95), deg_to_rad(b.yaw))
-	for wc in lay.wells:
-		terrain.add_flat_patch(wc, 2.2, 4.0, terrain.height_at(wc.x, wc.y))
+			var hx := 3.4 if b.kind == "barn" else 2.7
+			terrain.add_hole_rect(p, Vector2(hx, 0.95), deg_to_rad(b.yaw))
+	for wd in lay.wells:
+		terrain.add_flat_patch(wd.c, 2.2, 4.0, terrain.height_at(wd.c.x, wd.c.y))
+		if wd.cavern:
+			# Open the terrain inside the well shaft; the collar slab covers
+			# the over-removal.
+			terrain.add_hole_rect(wd.c, Vector2(1.1, 1.1), 0.0)
 	var vnodes := 0
 	for b in lay.buildings:
 		if b.node:
@@ -404,35 +411,46 @@ func _build_world() -> void:
 	if has_cave:
 		exclusions.append(Vector3(cave_pos.x, cave_pos.y, 9.0))
 	exclusions.append(Vector3(player.position.x, player.position.z, 6.0))
-	Vegetation.build(world, terrain, exclusions, wrng.randi(), biome)
+	var tree_perches: Array = Vegetation.build(world, terrain, exclusions, wrng.randi(), biome)
 
-	# Great trees / spires become climbable (with the irons).
+	# Great trees / spires become climbable (with the irons); building
+	# ladders climb free. Cavern wells descend with the rope.
 	climbables.clear()
 	for s in structures:
 		if s.kind == "nest":
 			climbables.append({axis = Vector3(s.position.x, 0, s.position.z),
 				top_y = s.position.y})
+	for ld in village.ladders:
+		climbables.append({axis = ld.axis, top_y = ld.top_y, free = true})
+	well_drops = village.drops
 
-	# Small birds commute between the nests — follow one to find them.
+	# Small birds commute between the nests — follow one to find them. They
+	# also loiter on rooftops and treetops, and flushed birds only sometimes
+	# retreat home.
 	var nest_tops: Array = []
-	for c in climbables:
-		nest_tops.append(Vector3(c.axis.x, c.top_y + 0.55, c.axis.z))
+	for s in structures:
+		if s.kind == "nest":
+			nest_tops.append(Vector3(s.position.x, s.position.y + 0.55, s.position.z))
 	if nest_tops.size() >= 2:
-		Birds.build(world, terrain, wrng, nest_tops).main = self
+		var birds := Birds.build(world, terrain, wrng, nest_tops)
+		birds.main = self
+		birds.spots = village.perches + tree_perches
 
 	# Tool locations are deterministic per seed.
 	var trng := RandomNumberGenerator.new()
 	trng.seed = _world_seed() ^ 0x5DEECE66
 	_assign_tools(trng)
 	tools = {map = false, compass = false, spyglass = false,
-		pencil = false, notepad = false, eraser = false, irons = false}
+		pencil = false, notepad = false, irons = false, rope = false}
 	has_coffee = false
 	coffee_until_ms = 0
 	trail.clear()
+	full_path.clear()
 	spotted.clear()
 	spot_idx = 0
 	hunt_won = false
 	world_start_ms = Time.get_ticks_msec()
+	hud.close_big_views()
 	hud.clear_annotations()
 	hud.set_tools(tools)
 	hud.set_map_texture(terrain.make_map_texture())
@@ -660,8 +678,8 @@ func _place_player(wrng: RandomNumberGenerator) -> void:
 # --- tools ---------------------------------------------------------------
 
 func _assign_tools(trng: RandomNumberGenerator) -> void:
-	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "eraser",
-		"irons", "coffee"]
+	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "irons",
+		"rope", "coffee"]
 	var picks: Array[int] = []
 	while picks.size() < ids.size():
 		var i := trng.randi_range(0, structures.size() - 1)
@@ -683,6 +701,10 @@ func _collect_tool(s: Interactable) -> void:
 		return
 	tools[id] = true
 	hud.set_tools(tools)
+	if id == "rope":
+		# The rope now hangs in every cavern well.
+		for dr in well_drops:
+			dr.rope.visible = true
 	hud.toast("You found the %s!" % ("climbing irons" if id == "irons" else id))
 
 
@@ -720,6 +742,12 @@ func can_note_spots() -> bool:
 func record_trail(wp: Vector2) -> void:
 	if trail.is_empty() or trail[trail.size() - 1].distance_to(wp) > 2.0:
 		trail.append(wp)
+
+
+## The complete session path — always recorded, shown on the victory recap.
+func record_path(wp: Vector2) -> void:
+	if full_path.is_empty() or full_path[full_path.size() - 1].distance_to(wp) > 3.0:
+		full_path.append(wp)
 
 
 func erase_trail_near(wp: Vector2, r: float) -> void:
@@ -795,7 +823,7 @@ func _setup_input() -> void:
 		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z],
 		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M], ["toggle_pad", KEY_N],
 		["feedback", KEY_F8], ["turn_left", KEY_LEFT], ["turn_right", KEY_RIGHT],
-		["crouch", KEY_C], ["autorun", KEY_QUOTELEFT]]
+		["crouch", KEY_X], ["sit", KEY_C], ["autorun", KEY_QUOTELEFT]]
 	for b in binds:
 		if InputMap.has_action(b[0]):
 			continue
@@ -899,7 +927,7 @@ func _shot_routine() -> void:
 			nearest = s
 	player.set_target(nearest)
 	tools = {map = true, compass = false, spyglass = true,
-		pencil = true, notepad = true, eraser = true, irons = true}
+		pencil = true, notepad = true, irons = true, rope = true}
 	hud.set_tools(tools)
 	for s in structures:
 		s.seen = true
@@ -1037,5 +1065,40 @@ func _shot_routine() -> void:
 		player.set_target(crate)
 		await get_tree().create_timer(1.0).timeout
 		get_viewport().get_texture().get_image().save_png(dir.path_join("shot_cellar.png"))
+		break
+	# Find a cavern well and photograph the cavern with the rope down.
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17]:
+		start_random(sv)
+		if well_drops.is_empty():
+			continue
+		var dr: Dictionary = well_drops[0]
+		dr.rope.visible = true
+		player.global_position = dr.axis + Vector3(0.0, -6.3, -1.6)
+		player.velocity = Vector3.ZERO
+		var wcam := Camera3D.new()
+		add_child(wcam)
+		wcam.global_position = dr.axis + Vector3(-2.5, -4.7, -2.5)
+		wcam.look_at(dr.axis + Vector3(1.5, -6.1, 1.5))
+		wcam.current = true
+		await get_tree().create_timer(1.0).timeout
+		get_viewport().get_texture().get_image().save_png(dir.path_join("shot_wellcave.png"))
+		break
+	# A roofdeck house with its ladder.
+	for sv in range(100, 140):
+		start_random(sv)
+		var lad: Dictionary = {}
+		for c in climbables:
+			if c.get("free", false):
+				lad = c
+				break
+		if lad.is_empty():
+			continue
+		var rcam := Camera3D.new()
+		add_child(rcam)
+		rcam.global_position = lad.axis + Vector3(5.5, 3.0, 4.5)
+		rcam.look_at(lad.axis + Vector3(-1.5, 2.2, 0.0))
+		rcam.current = true
+		await get_tree().create_timer(0.8).timeout
+		get_viewport().get_texture().get_image().save_png(dir.path_join("shot_roofdeck.png"))
 		break
 	get_tree().quit()

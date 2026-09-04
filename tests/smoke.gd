@@ -10,6 +10,7 @@ var _stage := 0
 var _walk_frames := 0
 var _walk_house: Node3D = null
 var _cave_body: Node3D = null
+var _well_drop: Dictionary = {}
 var _fails: Array[String] = []
 
 
@@ -49,8 +50,12 @@ func _nest_check(main, fails: Array[String], tagp: String) -> void:
 				fails.append(tagp + "nest not high above terrain")
 	if nests != 2:
 		fails.append(tagp + "expected 2 nests, got %d" % nests)
-	if main.climbables.size() != 2:
-		fails.append(tagp + "expected 2 climbables, got %d" % main.climbables.size())
+	var irons_climbs := 0
+	for c in main.climbables:
+		if not c.get("free", false):
+			irons_climbs += 1
+	if irons_climbs != 2:
+		fails.append(tagp + "expected 2 irons climbables, got %d" % irons_climbs)
 
 
 func _process(_delta: float) -> bool:
@@ -64,6 +69,8 @@ func _process(_delta: float) -> bool:
 		return _cave_test_tick(main)
 	if _stage == 3:
 		return _cellar_test_tick(main)
+	if _stage == 4:
+		return _well_test_tick(main)
 	var fails := _fails
 	if main == null or main.get_script() == null:
 		print("FAIL: Main node missing or script failed to compile")
@@ -81,13 +88,13 @@ func _process(_delta: float) -> bool:
 		quit(1)
 		return true
 
-	if main.structures.size() < 20 or main.structures.size() > 26:
-		fails.append("expected 20-26 structures, got %d" % main.structures.size())
+	if main.structures.size() < 20 or main.structures.size() > 32:
+		fails.append("expected 20-32 structures, got %d" % main.structures.size())
 	if main.world.get_node_or_null("Village") == null:
 		fails.append("village root missing")
-	# Underground nodes (cellar/cave) must actually be below the terrain.
+	# Underground nodes (cellar/cave/well) must actually be below the terrain.
 	for s in main.structures:
-		if s.display_name in ["cellar crate", "cave chest", "stashed crate", "buried urn"]:
+		if s.display_name in ["cellar crate", "cave chest", "stashed crate", "buried urn", "well cache"]:
 			var gh: float = main.terrain.height_at(s.position.x, s.position.z)
 			if s.position.y > gh - 1.5:
 				fails.append("underground node '%s' not below terrain" % s.display_name)
@@ -102,7 +109,7 @@ func _process(_delta: float) -> bool:
 		if not s.tool_id.is_empty():
 			tool_ids.append(s.tool_id)
 	tool_ids.sort()
-	if tool_ids != ["coffee", "compass", "eraser", "irons", "map", "notepad", "pencil", "spyglass"]:
+	if tool_ids != ["coffee", "compass", "irons", "map", "notepad", "pencil", "rope", "spyglass"]:
 		fails.append("tool spots wrong: %s" % str(tool_ids))
 	for id in main.tools:
 		if main.tools[id]:
@@ -119,8 +126,8 @@ func _process(_delta: float) -> bool:
 
 	# Day travel rebuilds a valid world.
 	main.load_day(3)
-	if main.structures.size() < 20 or main.structures.size() > 26:
-		fails.append("day 3: expected 20-26 structures, got %d" % main.structures.size())
+	if main.structures.size() < 20 or main.structures.size() > 32:
+		fails.append("day 3: expected 20-32 structures, got %d" % main.structures.size())
 
 	# Collecting a tool via search.
 	var tool_s: Interactable = null
@@ -195,6 +202,8 @@ func _process(_delta: float) -> bool:
 			main.structures.size(), main.searched_count])
 	if not main.hunt_won:
 		fails.append("hunt_won not set after opening all structures")
+	if not main.hud.big_map.visible:
+		fails.append("victory recap map did not open on win")
 
 	# New day resets everything.
 	main.load_day(1)
@@ -230,10 +239,17 @@ func _process(_delta: float) -> bool:
 	if main.hud.winded_label.visible:
 		fails.append("winded label did not clear")
 
-	# Feedback round 4: crouch/autorun actions, ice helper, crouch toggle,
-	# and the not-retroactive pencil-marking rule.
-	if not (InputMap.has_action("crouch") and InputMap.has_action("autorun")):
-		fails.append("crouch/autorun input actions missing")
+	# Feedback rounds 4-5: crouch/sit/autorun actions, ice helper, crouch
+	# and sit toggles, and the not-retroactive pencil-marking rule.
+	if not (InputMap.has_action("crouch") and InputMap.has_action("autorun") \
+			and InputMap.has_action("sit")):
+		fails.append("crouch/sit/autorun input actions missing")
+	main.player.toggle_sit()
+	if not main.player.sitting:
+		fails.append("sit did not engage")
+	main.player.toggle_sit()
+	if main.player.sitting:
+		fails.append("sit did not release")
 	main.player.set_crouch(true)
 	if not main.player.crouched:
 		fails.append("crouch did not engage")
@@ -272,27 +288,51 @@ func _process(_delta: float) -> bool:
 	main.start_random(999)
 	if main.structures.size() < 20:
 		fails.append("random seed 999 did not build")
-	# Caves and cellars: must each show up within a handful of seeds, with
-	# their nodes genuinely underground.
+	# Caves, cellars, and cavern wells: each must show up within a handful
+	# of seeds, with their nodes genuinely underground.
 	var cave_found := false
 	var cellar_found := false
-	for sv in [11, 22, 33, 44, 55, 66, 77, 88]:
+	var well_found := false
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17, 29, 41]:
 		main.start_random(sv)
+		if not main.well_drops.is_empty():
+			well_found = true
 		for s in main.structures:
-			if s.display_name in ["cave chest", "stashed crate", "buried urn", "cellar crate"]:
+			if s.display_name in ["cave chest", "stashed crate", "buried urn", "cellar crate", "well cache"]:
 				var gh: float = main.terrain.height_at(s.position.x, s.position.z)
 				if s.position.y > gh - 1.5:
 					fails.append("seed %d: underground node '%s' not below terrain" % [sv, s.display_name])
 				if s.display_name == "cellar crate":
 					cellar_found = true
-				else:
+				elif s.display_name != "well cache":
 					cave_found = true
-		if cave_found and cellar_found:
+		if cave_found and cellar_found and well_found:
 			break
 	if not cave_found:
-		fails.append("no cave generated across 8 seeds")
+		fails.append("no cave generated across 12 seeds")
 	if not cellar_found:
-		fails.append("no cellar generated across 8 seeds")
+		fails.append("no cellar crate generated across 12 seeds")
+	if not well_found:
+		fails.append("no cavern well generated across 12 seeds")
+
+	# Building variety: upstairs wardrobes and roof ladders must both occur.
+	var upstairs_found := false
+	var ladder_found := false
+	for sv in range(100, 160):
+		main.start_random(sv)
+		for c in main.climbables:
+			if c.get("free", false):
+				ladder_found = true
+		for s in main.structures:
+			if s.kind == "wardrobe" \
+					and s.position.y - main.terrain.height_at(s.position.x, s.position.z) > 2.5:
+				upstairs_found = true
+		if upstairs_found and ladder_found:
+			break
+	if not upstairs_found:
+		fails.append("no upstairs wardrobe generated across 60 seeds")
+	if not ladder_found:
+		fails.append("no roof ladder generated across 60 seeds")
 
 	main.start_daily()
 	if main.game_mode != "daily":
@@ -322,8 +362,8 @@ func _process(_delta: float) -> bool:
 		if main.biome.id != b:
 			fails.append("biome override '%s' not applied" % b)
 			continue
-		if main.structures.size() < 20 or main.structures.size() > 26:
-			fails.append("%s: expected 20-26 structures, got %d" % [b, main.structures.size()])
+		if main.structures.size() < 20 or main.structures.size() > 32:
+			fails.append("%s: expected 20-32 structures, got %d" % [b, main.structures.size()])
 		if _tool_count(main) != 8:
 			fails.append("%s: expected 8 hidden items, got %d" % [b, _tool_count(main)])
 		if main.weather_name.is_empty():
@@ -361,7 +401,9 @@ func _walk_test_tick(main) -> bool:
 		return false
 	Input.action_release("move_forward")
 	var lp: Vector3 = _walk_house.to_local(main.player.global_position)
-	if lp.z > 2.6 or lp.y < 0.35:
+	# Standing on the floor counts; so does having descended into the
+	# house's own cellar stairwell (also proof of entry).
+	if lp.z > 2.6 or (lp.y < 0.35 and lp.y > -1.0):
 		_fails.append("player could not walk into the house (local z=%.2f y=%.2f)" % [lp.z, lp.y])
 	# Next: walk down into a cave through its arch.
 	_cave_body = null
@@ -392,9 +434,9 @@ func _cave_test_tick(main) -> bool:
 	var depth: float = main.player.global_position.y - _cave_body.global_position.y
 	if depth > -3.0:
 		_fails.append("player could not descend into the cave (depth %.2f)" % depth)
-	# Finally: walk down a barn cellar stairwell.
+	# Finally: walk down a cellar stairwell (barn or house).
 	var barn: Node3D = null
-	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17]:
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17, 29, 41]:
 		main.start_random(sv)
 		var crate: Interactable = null
 		for s in main.structures:
@@ -404,19 +446,19 @@ func _cave_test_tick(main) -> bool:
 			continue
 		var village: Node3D = main.world.get_node("Village")
 		for ch in village.get_children():
-			if String(ch.name).contains("Barn") \
+			if (String(ch.name).contains("Barn") or String(ch.name).contains("House")) \
 					and ch.global_position.distance_to(crate.global_position) < 12.0:
 				barn = ch
 				break
 		if barn:
 			break
 	if barn == null:
-		_fails.append("no cellar barn found for walk-in test")
+		_fails.append("no cellar building found for walk-in test")
 		return _finish(_fails)
-	# Start on the barn floor west of the stairwell mouth and walk east —
-	# down the full stair, standing, with no jumping allowed.
+	# Start on the floor west of the stairwell mouth and walk east — down
+	# the full stair, standing, with no jumping allowed.
 	var pl = main.player
-	pl.global_position = barn.global_transform * Vector3(-4.2, 0.7, 0.0)
+	pl.global_position = barn.global_transform * Vector3(-3.2, 0.7, 0.0)
 	pl.velocity = Vector3.ZERO
 	var dirw: Vector3 = barn.global_transform.basis * Vector3(1, 0, 0)
 	pl.set_facing(atan2(-dirw.x, -dirw.z))
@@ -435,12 +477,42 @@ func _cellar_test_tick(main) -> bool:
 	var depth: float = main.player.global_position.y - _walk_house.global_position.y
 	if depth > -2.0:
 		_fails.append("player could not descend into the cellar (depth %.2f)" % depth)
+	# Stage 4: rope-descend a cavern well — climb in over the rim with W,
+	# let go, and slide the rope to the cavern floor.
+	_well_drop = {}
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17, 29, 41]:
+		main.start_random(sv)
+		if not main.well_drops.is_empty():
+			_well_drop = main.well_drops[0]
+			break
+	if _well_drop.is_empty():
+		_fails.append("no cavern well found for descent test")
+		return _finish(_fails)
+	main.tools.rope = true
+	var pl = main.player
+	pl.global_position = _well_drop.axis + Vector3(1.55, 0.2, 0.0)
+	pl.velocity = Vector3.ZERO
+	Input.action_press("move_forward")
+	_stage = 4
+	_walk_frames = 0
+	return false
+
+
+func _well_test_tick(main) -> bool:
+	_walk_frames += 1
+	if _walk_frames == 100:
+		Input.action_release("move_forward")
+	if _walk_frames < 560:
+		return false
+	var depth: float = main.player.global_position.y - _well_drop.axis.y
+	if depth > -4.0:
+		_fails.append("player could not rope-descend the well (depth %.2f)" % depth)
 	return _finish(_fails)
 
 
 func _finish(fails: Array[String]) -> bool:
 	if fails.is_empty():
-		print("SMOKE PASS (modes, determinism, 4 biomes, 7 tools, nests, win, walk-in, feedback OK)")
+		print("SMOKE PASS (modes, determinism, 4 biomes, 8 items, nests, win+recap, walk-ins incl. well, feedback OK)")
 		quit(0)
 	else:
 		for f in fails:

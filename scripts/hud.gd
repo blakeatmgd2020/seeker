@@ -90,7 +90,7 @@ func toggle_big_map() -> void:
 	if big_map.visible:
 		close_big_views()
 		return
-	if main == null or not main.tools.map:
+	if main == null or (not main.tools.map and not main.hunt_won):
 		toast("You need the map to do that.")
 		return
 	_open_big(big_map)
@@ -303,7 +303,8 @@ class CompassStrip:
 
 ## Full-screen map (M): the painted terrain with trail ink and node marks
 ## (pencil-gated, same rules as the minimap), plus a lightweight paint layer —
-## LMB draws with the pencil, RMB erases strokes AND trail with the eraser.
+## LMB draws with the pencil, RMB erases strokes AND trail (the pencil
+## carries its own eraser).
 class BigMap:
 	extends Control
 	const ANNOT_RES := 512
@@ -344,13 +345,16 @@ class BigMap:
 		var bgc := Color(0.88, 0.84, 0.72, 0.98) if paper else Color(0.10, 0.08, 0.06, 0.97)
 		draw_rect(Rect2(Vector2.ZERO, size), bgc, true)
 		# Without the compass the whole view rotates around you: facing = up.
+		# After the hunt is won this becomes the victory recap: north-up,
+		# everything visible, with the whole session's path drawn on.
+		var recap: bool = main.hunt_won
 		var pp := Vector2.ZERO
 		var fy := 0.0
 		if main.player:
 			pp = _to_px(Vector2(main.player.global_position.x, main.player.global_position.z))
 			fy = main.player.cam_yaw
 		_content_xf = Transform2D()
-		if not main.tools.compass and main.player:
+		if not main.tools.compass and main.player and not recap:
 			var rz := Transform2D(fy, Vector2.ZERO)
 			_content_xf = Transform2D(fy, size * 0.5 - rz * pp)
 		draw_set_transform_matrix(_content_xf)
@@ -367,7 +371,12 @@ class BigMap:
 			draw_polygon(qpts, PackedColorArray([Color(1, 1, 1)]), quvs, map_tex)
 		if annot_tex:
 			draw_texture_rect(annot_tex, Rect2(Vector2.ZERO, size), false)
-		if main.tools.pencil:
+		if recap and not paper and main.full_path.size() > 1:
+			var fp := PackedVector2Array()
+			for p in main.full_path:
+				fp.append(_to_px(p))
+			draw_polyline(fp, Color(0.2, 0.35, 0.72, 0.9), 2.5)
+		if main.tools.pencil or recap:
 			if main.trail.size() > 1:
 				var pts := PackedVector2Array()
 				for p in main.trail:
@@ -386,7 +395,7 @@ class BigMap:
 						if s == sel:
 							draw_arc(p, 9.0, 0.0, TAU, 20, Color(0.25, 0.65, 0.25), 2.0)
 					continue
-				if not s.noted:
+				if not (s.noted or recap):
 					continue
 				if s.opened:
 					_cross(p, 5.0, Color(0.42, 0.10, 0.07, 0.9))
@@ -411,10 +420,10 @@ class BigMap:
 					c2 + Vector2(0, -12), c2 + Vector2(-7, 6), c2 + Vector2(7, 6)]), mark_col)
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.85, 0.75, 0.5), false, 3.0)
 		var hint := ("N — close" if paper else "M — close")
-		if main.tools.pencil:
-			hint += " · left-drag draw"
-		if main.tools.eraser:
-			hint += " · right-drag erase"
+		if recap and not paper:
+			hint = "Your session's path · M — close"
+		elif main.tools.pencil:
+			hint += " · left-drag draw · right-drag erase"
 		var f := ThemeDB.fallback_font
 		var hint_col := Color(0.3, 0.25, 0.2) if paper else Color(1, 0.95, 0.8)
 		draw_string_outline(f, Vector2(12, size.y - 12), hint,
@@ -445,7 +454,8 @@ class BigMap:
 			return
 		if draw_btn and main.tools.pencil:
 			_stroke(pos, false)
-		elif erase_btn and main.tools.eraser:
+		elif erase_btn and main.tools.pencil:
+			# The pencil carries its own eraser.
 			_stroke(pos, true)
 		else:
 			_last = Vector2(-9999, -9999)
@@ -518,7 +528,7 @@ class SpyOverlay:
 
 func _ready() -> void:
 	var help := _label(14, Color(1, 1, 1, 0.75))
-	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom · Click target · Right-click / E search\nWASD move · Arrows turn/walk · Shift sprint · Space jump · C crouch · ` autorun\nZ spyglass · M map · N notepad · Tab cycle spots · F8 / Dev Note feedback · Esc deselect / menu"
+	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom · Click target · Right-click / E search\nWASD move · Arrows turn/walk · Shift sprint · Space jump · X crouch · C sit · ` autorun\nZ spyglass · M map · N notepad · Tab cycle spots · F8 / Dev Note feedback · Esc deselect / menu"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(14, 8)
 	add_child(help)
@@ -627,7 +637,7 @@ func _ready() -> void:
 	chips_v.size = Vector2(236, 44)
 	chips_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(chips_v)
-	for row in [["map", "compass", "spyglass", "irons"], ["pencil", "notepad", "eraser"]]:
+	for row in [["map", "compass", "spyglass", "irons"], ["pencil", "notepad", "rope"]]:
 		var chips := HBoxContainer.new()
 		chips.alignment = BoxContainer.ALIGNMENT_END
 		chips.add_theme_constant_override("separation", 12)
@@ -694,7 +704,9 @@ func _ready() -> void:
 	big_dim = ColorRect.new()
 	big_dim.color = Color(0, 0, 0, 0.45)
 	big_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	big_dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	# The dim is visual only — mouse drags outside the map panel still
+	# steer the character, so you can walk while reading the map.
+	big_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	big_dim.visible = false
 	add_child(big_dim)
 	big_map = BigMap.new()
@@ -805,7 +817,8 @@ func set_stamina(v: float, locked: bool, lock_left := 0.0) -> void:
 
 func win(total: int, time_str: String) -> void:
 	banner.visible = true
-	banner_label.text = "EVERY HIDING PLACE SEARCHED!\nAll %d found in %s.\nAnother world awaits — a new day, or a random map." % [total, time_str]
+	banner_label.text = "EVERY HIDING PLACE SEARCHED!\nAll %d found in %s. Here is everywhere you went.\nAnother world awaits — a new day, or a random map." % [total, time_str]
+	_open_big(big_map)
 
 
 func hide_banner() -> void:

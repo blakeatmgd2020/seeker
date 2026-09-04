@@ -18,7 +18,6 @@ var _session_stamp := ""
 var _file_abs := ""
 var _summary_text := ""
 var _summary_written := false
-var _prev_paused := false
 
 var _dim: ColorRect
 var _btn: Button
@@ -53,9 +52,10 @@ func _ready() -> void:
 		[d.year, d.month, d.day, d.hour, d.minute, d.second])
 
 	_dim = ColorRect.new()
-	_dim.color = Color(0, 0, 0, 0.5)
+	_dim.color = Color(0, 0, 0, 0.35)
 	_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	# Visual only: the world keeps running and the mouse still steers.
+	_dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_dim.visible = false
 	add_child(_dim)
 
@@ -199,9 +199,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+## The world does NOT pause for a note — keep playing while you type.
+## (Keyboard walking is suppressed by the player while the form is open.)
 func open_form() -> void:
-	_prev_paused = get_tree().paused
-	get_tree().paused = true
 	if main and main.player:
 		main.player.release_drag()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -217,7 +217,10 @@ func close_form() -> void:
 	_dim.visible = false
 	_panel.visible = false
 	_notes_panel.visible = false
-	get_tree().paused = _prev_paused
+
+
+func form_open() -> bool:
+	return _panel.visible or _notes_panel.visible
 
 
 func _save() -> void:

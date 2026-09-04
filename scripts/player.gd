@@ -40,8 +40,10 @@ var dist_walked := 0.0
 var stamina := 1.0
 var climbing := false
 var crouched := false
+var sitting := false
 var autorun := false
 var _stamina_locked := false
+var _well_deep := false
 var _lock_until_ms := 0
 var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
@@ -150,6 +152,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		set_crouch(not crouched)
 		get_viewport().set_input_as_handled()
 		return
+	if event.is_action_pressed("sit"):
+		toggle_sit()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("autorun"):
 		autorun = not autorun
 		if hud:
@@ -206,10 +212,15 @@ func _mouse_motion(e: InputEventMouseMotion) -> void:
 			_dragging = true
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if _dragging:
-		# Sensitivity scales with FOV so the spyglass aims steadily.
+		# Sensitivity scales with FOV so the spyglass aims steadily. The
+		# normal camera is vertically inverted (preference); through the
+		# scope it is not.
 		var sens := MOUSE_SENS * (cam.fov / BASE_FOV)
+		var spy_now: bool = main != null and main.tools.spyglass \
+			and Input.is_action_pressed("spyglass")
+		var vy := -e.relative.y if spy_now else e.relative.y
 		pitch_node.rotation_degrees.x = clampf(
-			pitch_node.rotation_degrees.x + e.relative.y * sens, -75.0, 55.0)
+			pitch_node.rotation_degrees.x + vy * sens, -75.0, 55.0)
 		cam_yaw -= deg_to_rad(e.relative.x * sens)
 		if _rmb:
 			facing = cam_yaw
@@ -252,11 +263,34 @@ func set_crouch(on: bool) -> void:
 			hud.toast("Not enough room to stand here.")
 		return
 	crouched = on
+	sitting = false
 	var cap: CapsuleShape3D = _cshape.shape
 	cap.height = 1.05 if on else 1.75
 	_cshape.position.y = 0.55 if on else 0.9
-	body_vis.scale.y = 0.62 if on else 1.0
-	yaw_node.position.y = 1.0 if on else 1.55
+	_apply_pose()
+
+
+## Sit (C): fully immobile, but resting speeds stamina recovery — and a
+## Winded lockout counts down markedly faster.
+func toggle_sit() -> void:
+	sitting = not sitting
+	if sitting:
+		autorun = false
+		if hud:
+			hud.toast("Sitting — resting speeds recovery. C to stand.")
+	_apply_pose()
+
+
+func _apply_pose() -> void:
+	if sitting:
+		body_vis.scale.y = 0.5
+		yaw_node.position.y = 0.95
+	elif crouched:
+		body_vis.scale.y = 0.62
+		yaw_node.position.y = 1.0
+	else:
+		body_vis.scale.y = 1.0
+		yaw_node.position.y = 1.55
 
 
 func _headroom_blocked() -> bool:
@@ -300,17 +334,25 @@ func _physics_process(delta: float) -> void:
 	var iv := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	if _lmb and _rmb:
 		iv.y = -1.0
+	# While typing a dev note keyboard keys go to the text box, not the legs;
+	# mouse movement and autorun stay live. Sitting means sitting still.
+	var noting: bool = main != null and main.feedback != null and main.feedback.form_open()
+	if noting or sitting:
+		iv.x = 0.0
+		if not (_lmb and _rmb) or sitting:
+			iv.y = 0.0
 	# Autorun (` toggles): keep walking forward; backpedal input cancels it.
-	if autorun:
+	if autorun and not sitting:
 		if iv.y > 0.1:
 			autorun = false
 		else:
 			iv.y = -1.0
 
-	# Climbing irons: near a great tree, W climbs, S descends.
+	# Climbing irons: near a great tree, W climbs, S descends. Building
+	# ladders (free = true) need no irons.
 	var climb := _near_climbable()
 	climbing = false
-	if not climb.is_empty() and main.tools.irons:
+	if not climb.is_empty() and (main.tools.irons or climb.get("free", false)):
 		var to_axis := Vector3(climb.axis.x - global_position.x, 0.0,
 			climb.axis.z - global_position.z)
 		if iv.y < -0.1 and global_position.y < climb.top_y + 0.35:
@@ -327,9 +369,42 @@ func _physics_process(delta: float) -> void:
 			body_vis.rotation.y = lerp_angle(body_vis.rotation.y,
 				atan2(to_axis.x, to_axis.z), minf(1.0, 12.0 * delta))
 
+	# Rope: a cavern well can be climbed into and out of. Inside the shaft
+	# the rope tames the fall to a controlled slide; once you've been down
+	# in it, W climbs the rope and crests you back over the rim.
+	var wellc := _near_well()
+	if wellc.is_empty():
+		_well_deep = false
+	elif main.tools.rope and not climbing:
+		var wdxz := Vector2(wellc.axis.x - global_position.x, wellc.axis.z - global_position.z)
+		if wdxz.length() < 0.75:
+			climbing = true
+			velocity.x = move_toward(velocity.x, 0.0, 8.0 * delta)
+			velocity.z = move_toward(velocity.z, 0.0, 8.0 * delta)
+			velocity.y = maxf(velocity.y - GRAVITY * delta, -3.0)
+			if global_position.y < wellc.rim_y - 2.0:
+				_well_deep = true
+			if iv.y < -0.1 and _well_deep:
+				if global_position.y >= wellc.rim_y - 0.15:
+					var outd := Basis(Vector3.UP, facing) * Vector3(0, 0, -1)
+					velocity = Vector3(outd.x, 0, outd.z).normalized() * 2.6 + Vector3(0, 1.7, 0)
+					_well_deep = false
+				else:
+					velocity = Vector3(0, CLIMB_SPEED, 0)
+			elif is_on_floor():
+				climbing = false
+		elif iv.y < -0.1 and wdxz.length() < 1.9 \
+				and global_position.y < wellc.rim_y + 0.5:
+			climbing = true
+			if global_position.y >= wellc.rim_y - 0.15:
+				velocity = Vector3(wdxz.x, 0, wdxz.y).normalized() * 3.0 + Vector3(0, 1.4, 0)
+			else:
+				velocity = Vector3(0, CLIMB_SPEED, 0) \
+					+ Vector3(wdxz.x, 0, wdxz.y).normalized() * 0.4
+
 	# Arrow keys: keyboard turning — character and camera swing together.
 	var turn := Input.get_axis("turn_right", "turn_left")
-	if turn != 0.0 and not climbing:
+	if turn != 0.0 and not climbing and not noting:
 		facing += turn * TURN_SPEED * delta
 		cam_yaw += turn * TURN_SPEED * delta
 
@@ -351,7 +426,11 @@ func _physics_process(delta: float) -> void:
 	else:
 		_regen_delay -= delta
 		if _regen_delay <= 0.0:
-			stamina = minf(stamina + delta / STAMINA_REGEN, 1.0)
+			stamina = minf(stamina + delta / STAMINA_REGEN * (2.5 if sitting else 1.0), 1.0)
+	if sitting and _stamina_locked:
+		# Resting shortens the Winded lockout: 1.5x extra recovery on top
+		# of real time (2.5x total).
+		_lock_until_ms -= int(delta * 1500.0)
 	if _stamina_locked and Time.get_ticks_msec() >= _lock_until_ms:
 		_stamina_locked = false
 	if hud:
@@ -363,15 +442,22 @@ func _physics_process(delta: float) -> void:
 	if not climbing:
 		if not is_on_floor():
 			velocity.y -= GRAVITY * delta
-		elif Input.is_action_just_pressed("jump"):
+		elif Input.is_action_just_pressed("jump") and not sitting and not noting:
 			velocity.y = JUMP_VEL
 		var dir := Basis(Vector3.UP, facing) * Vector3(iv.x, 0, iv.y)
 		dir.y = 0.0
 		if dir.length() > 1.0:
 			dir = dir.normalized()
-		var sp := SPRINT_SPEED if sprinting else WALK_SPEED
+		var sp := WALK_SPEED
+		if sprinting:
+			# Parabolic sprint: fresh legs are fastest; the bonus over walk
+			# speed decays to half as stamina drains.
+			var sf := 1.0 if caffeinated else 0.5 + 0.5 * stamina * stamina
+			sp = WALK_SPEED + (SPRINT_SPEED - WALK_SPEED) * sf
 		if iv.y > 0.0:
 			sp *= BACKPEDAL_FACTOR
+		if _stamina_locked:
+			sp *= 0.85
 		if crouched:
 			sp *= 0.5
 		# Frozen ponds barely grip: acceleration and braking crawl, so
@@ -386,6 +472,8 @@ func _physics_process(delta: float) -> void:
 	if step < 5.0:
 		dist_walked += step
 	_last_walk_pos = wp
+	if main:
+		main.record_path(wp)
 
 	if not climbing:
 		body_vis.rotation.y = lerp_angle(body_vis.rotation.y, facing + PI, minf(1.0, 14.0 * delta))
@@ -418,12 +506,20 @@ func _physics_process(delta: float) -> void:
 		else:
 			hud.set_hover("", Vector2.ZERO)
 
-	# Climb hint when standing at a great tree.
+	# Climb hint when standing at a great tree, ladder, or cavern well.
 	if hud and not climb.is_empty() and is_on_floor() and hud.prompt.text.is_empty():
-		if main.tools.irons:
+		if climb.get("free", false):
+			hud.prompt.text = "Hold W to climb the ladder"
+		elif main.tools.irons:
 			hud.prompt.text = "Hold W against the trunk to climb"
 		else:
 			hud.prompt.text = "These heights need climbing irons"
+	elif hud and not wellc.is_empty() and is_on_floor() and hud.prompt.text.is_empty() \
+			and global_position.y > wellc.rim_y - 1.5:
+		if main.tools.rope:
+			hud.prompt.text = "Hold W at the rim to climb into the well"
+		else:
+			hud.prompt.text = "Something is down there — you'd need a rope"
 
 	if Input.is_action_just_pressed("interact") and target and is_instance_valid(target):
 		try_interact(target)
@@ -439,6 +535,17 @@ func _near_climbable() -> Dictionary:
 	return {}
 
 
+func _near_well() -> Dictionary:
+	if main == null:
+		return {}
+	for w in main.well_drops:
+		var d := Vector2(global_position.x - w.axis.x, global_position.z - w.axis.z).length()
+		if d < 2.0 and global_position.y > w.floor_y - 0.5 \
+				and global_position.y < w.rim_y + 1.4:
+			return w
+	return {}
+
+
 ## Marks nearby structures as discovered; while the spyglass is raised, also
 ## marks and labels any unsearched structure with a clear line of sight.
 func _update_discovery(spy: bool) -> void:
@@ -450,6 +557,12 @@ func _update_discovery(spy: bool) -> void:
 
 	var spots: Array = []
 	var space := get_world_3d().direct_space_state
+	# Exclude whatever the player stands on/in from sight rays — spotting a
+	# nest FROM a nest must not be blocked by your own perch.
+	var ray_excl: Array[RID] = [get_rid()]
+	for s0 in main.structures:
+		if is_instance_valid(s0) and global_position.distance_to(s0.global_position) < 5.0:
+			ray_excl.append(s0.get_rid())
 	for s in main.structures:
 		if not is_instance_valid(s):
 			continue
@@ -465,8 +578,10 @@ func _update_discovery(spy: bool) -> void:
 			var p3: Vector3 = s.global_position + Vector3.UP * 1.2
 			if cam.is_position_behind(p3):
 				continue
+			var ex := ray_excl.duplicate()
+			ex.append(s.get_rid())
 			var q := PhysicsRayQueryParameters3D.create(
-				cam.global_position, p3, 1, [get_rid(), s.get_rid()])
+				cam.global_position, p3, 1, ex)
 			if space.intersect_ray(q):
 				continue
 			s.seen = true
