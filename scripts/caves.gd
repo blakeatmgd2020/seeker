@@ -62,7 +62,9 @@ static func build(parent: Node3D, terrain: Terrain, wrng: RandomNumberGenerator,
 	Util.box(b, Vector3(2.5, 7.4, 8.2), Vector3(2.4, -1.1, 0.3), stone)
 	Util.box(b, Vector3(3.0, 0.35, 7.2), Vector3(0, 0.55, 0.4), stone, true, Vector3(-38.2, 0, 0))
 	Util.box(b, Vector3(6.6, 0.35, 2.4), Vector3(0, -0.14, -4.4), stone)
-	Util.box(b, Vector3(6.6, 0.3, 3.8), Vector3(0, -0.15, 5.1), stone)
+	# Apron top rides just above the flattened terrain so the two surfaces
+	# never share a plane (coplanar faces flicker).
+	Util.box(b, Vector3(6.6, 0.3, 3.8), Vector3(0, -0.11, 5.1), stone)
 
 	# Chamber: x -4..4, z -8.6..-2.3, floor -4.4, ceiling -1.7.
 	Util.box(b, Vector3(8.9, 0.35, 7.0), Vector3(0, -4.6, -5.5), stone)

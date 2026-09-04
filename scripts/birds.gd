@@ -7,6 +7,7 @@ extends Node3D
 const SPEED := 7.5
 const FLAP_RATE := 22.0  ## wing-beat angular speed, rad/s
 
+var main: Node = null
 var terrain: Terrain = null
 var perches: Array = []        ## Vector3 nest-top perch points
 var _flock: Array = []
@@ -108,6 +109,12 @@ func _process(delta: float) -> void:
 			# Folded wings, the odd idle shuffle.
 			bd.wl.rotation.z = 0.95
 			bd.wr.rotation.z = -0.95
+			# A seeker climbing too close flushes the bird to another nest.
+			if main and main.player \
+					and main.player.global_position.distance_to(bd.node.position) < 7.0:
+				_launch(bd)
+				bd.dur *= 0.6  # panicked burst
+				continue
 			bd.timer -= delta
 			if bd.timer <= 0.0:
 				_launch(bd)

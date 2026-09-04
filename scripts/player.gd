@@ -39,10 +39,13 @@ var cam_yaw := 0.0
 var dist_walked := 0.0
 var stamina := 1.0
 var climbing := false
+var crouched := false
+var autorun := false
 var _stamina_locked := false
 var _lock_until_ms := 0
 var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
+var _cshape: CollisionShape3D
 var _lmb := false
 var _rmb := false
 var _dragging := false
@@ -61,6 +64,7 @@ func _init() -> void:
 	cs.shape = cap
 	cs.position = Vector3(0, 0.9, 0)
 	add_child(cs)
+	_cshape = cs
 	_build_visual()
 	yaw_node = Node3D.new()
 	yaw_node.position = Vector3(0, 1.55, 0)
@@ -140,6 +144,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_pad"):
 		if hud:
 			hud.toggle_big_pad()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("crouch"):
+		set_crouch(not crouched)
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("autorun"):
+		autorun = not autorun
+		if hud:
+			hud.toast("Autorun on." if autorun else "Autorun off.")
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseButton:
@@ -228,6 +242,30 @@ func set_facing(f: float) -> void:
 	body_vis.rotation.y = f + PI
 
 
+## Crouch toggle: a shrunken profile at half speed, for cellar mouths,
+## crawlspaces, and other tight places. Standing back up needs headroom.
+func set_crouch(on: bool) -> void:
+	if crouched == on:
+		return
+	if not on and _headroom_blocked():
+		if hud:
+			hud.toast("Not enough room to stand here.")
+		return
+	crouched = on
+	var cap: CapsuleShape3D = _cshape.shape
+	cap.height = 1.05 if on else 1.75
+	_cshape.position.y = 0.55 if on else 0.9
+	body_vis.scale.y = 0.62 if on else 1.0
+	yaw_node.position.y = 1.0 if on else 1.55
+
+
+func _headroom_blocked() -> bool:
+	var q := PhysicsRayQueryParameters3D.create(
+		global_position + Vector3(0, 0.6, 0),
+		global_position + Vector3(0, 1.95, 0), 1, [get_rid()])
+	return not get_world_3d().direct_space_state.intersect_ray(q).is_empty()
+
+
 ## Abort any in-progress mouse drag (used when the menu opens mid-drag).
 func release_drag() -> void:
 	_lmb = false
@@ -262,6 +300,12 @@ func _physics_process(delta: float) -> void:
 	var iv := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	if _lmb and _rmb:
 		iv.y = -1.0
+	# Autorun (` toggles): keep walking forward; backpedal input cancels it.
+	if autorun:
+		if iv.y > 0.1:
+			autorun = false
+		else:
+			iv.y = -1.0
 
 	# Climbing irons: near a great tree, W climbs, S descends.
 	var climb := _near_climbable()
@@ -328,8 +372,14 @@ func _physics_process(delta: float) -> void:
 		var sp := SPRINT_SPEED if sprinting else WALK_SPEED
 		if iv.y > 0.0:
 			sp *= BACKPEDAL_FACTOR
-		velocity.x = lerpf(velocity.x, dir.x * sp, minf(1.0, 10.0 * delta))
-		velocity.z = lerpf(velocity.z, dir.z * sp, minf(1.0, 10.0 * delta))
+		if crouched:
+			sp *= 0.5
+		# Frozen ponds barely grip: acceleration and braking crawl, so
+		# momentum carries you sliding across the ice.
+		var icy: bool = is_on_floor() and main != null and main.on_ice(global_position)
+		var accel := 1.6 if icy else 10.0
+		velocity.x = lerpf(velocity.x, dir.x * sp, minf(1.0, accel * delta))
+		velocity.z = lerpf(velocity.z, dir.z * sp, minf(1.0, accel * delta))
 	move_and_slide()
 	var wp := Vector2(global_position.x, global_position.z)
 	var step := wp.distance_to(_last_walk_pos)
@@ -404,8 +454,13 @@ func _update_discovery(spy: bool) -> void:
 		if not is_instance_valid(s):
 			continue
 		var d := global_position.distance_to(s.global_position)
-		if not s.seen and d < DISCOVER_RANGE:
+		if d < DISCOVER_RANGE:
 			s.seen = true
+			# Marks are only made in the moment: a node lands on the map when
+			# you see it WHILE holding the pencil and a writing surface —
+			# nodes seen earlier must be sighted again to be inked.
+			if main.can_note_spots():
+				s.noted = true
 		if spy and not s.opened and d > 12.0 and d < SPY_RANGE:
 			var p3: Vector3 = s.global_position + Vector3.UP * 1.2
 			if cam.is_position_behind(p3):
@@ -415,6 +470,8 @@ func _update_discovery(spy: bool) -> void:
 			if space.intersect_ray(q):
 				continue
 			s.seen = true
+			if main.can_note_spots():
+				s.noted = true
 			# Logging a spot requires actually aiming the scope at it.
 			var aim := (p3 - cam.global_position).normalized()
 			var centered := (-cam.global_basis.z).dot(aim) > cos(deg_to_rad(SPY_AIM_DEG))

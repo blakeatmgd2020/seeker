@@ -173,6 +173,19 @@ func _ready() -> void:
 			open_form())
 	add_child(_btn)
 
+	# Build stamp, lower-left: which update this executable is running.
+	var ver := Label.new()
+	ver.text = "Seeker %s" % (main.VERSION if main else "dev")
+	ver.add_theme_font_size_override("font_size", 12)
+	ver.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	ver.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	ver.add_theme_constant_override("outline_size", 4)
+	ver.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	ver.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	ver.position = Vector2(10, -24)
+	ver.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(ver)
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("feedback"):

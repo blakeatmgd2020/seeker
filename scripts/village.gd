@@ -150,11 +150,14 @@ static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	var t := 0.25
 	var F := FOUND_TOP
 	if stair_hole:
-		# Foundation and floor with the cellar stairwell cut out (rear-right).
-		_hole_slab(b, -(w + 0.5) * 0.5, (w + 0.5) * 0.5, -(d + 0.5) * 0.5, (d + 0.5) * 0.5,
-			0.7, 4.9, -3.5, -2.3, 0.0, 0.9, TexF.mat("stone"))
+		# Foundation and floor with the cellar stairwell cut out: a central
+		# opening along the long axis, wide and tall enough to walk down
+		# standing. The foundation is widened so it covers every terrain quad
+		# the stairwell hole can remove (removal reaches rect + ~3 m).
+		_hole_slab(b, -6.5, 6.5, -(d + 0.5) * 0.5, (d + 0.5) * 0.5,
+			-3.3, 3.3, -0.85, 0.85, 0.0, 0.9, TexF.mat("stone"))
 		_hole_slab(b, -(w - 0.4) * 0.5, (w - 0.4) * 0.5, -(d - 0.4) * 0.5, (d - 0.4) * 0.5,
-			0.7, 4.9, -3.5, -2.3, 0.475, 0.05, TexF.mat("floor"))
+			-3.3, 3.3, -0.85, 0.85, 0.475, 0.05, TexF.mat("floor"))
 	else:
 		Util.box(b, Vector3(w + 0.5, 0.9, d + 0.5), Vector3(0, 0.0, 0), TexF.mat("stone"))
 		Util.box(b, Vector3(w - 0.4, 0.05, d - 0.4), Vector3(0, 0.475, 0), TexF.mat("floor"))
@@ -310,36 +313,34 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		Basis(Vector3.UP, deg_to_rad(-20.0)), Vector3(-3.0, FLOOR_TOP, -2.4))}
 	if with_basement:
 		var stone := TexF.mat("stone")
-		# Cellar room: x -3.5..5.0, z -3.9..2.4, floor -3.05, ceiling -0.85.
-		Util.box(b, Vector3(8.8, 0.3, 6.6), Vector3(0.75, -3.2, -0.75), stone)
-		_hole_slab(b, -3.65, 5.15, -4.05, 2.55, 0.7, 5.0, -3.5, -2.3, -1.0, 0.3, stone)
-		Util.box(b, Vector3(0.3, 2.6, 6.8), Vector3(-3.65, -1.95, -0.75), stone)
-		Util.box(b, Vector3(0.3, 2.6, 6.8), Vector3(5.15, -1.95, -0.75), stone)
-		Util.box(b, Vector3(9.2, 2.6, 0.3), Vector3(0.75, -1.95, -4.05), stone)
-		Util.box(b, Vector3(9.2, 2.6, 0.3), Vector3(0.75, -1.95, 2.55), stone)
-		# Stairwell shaft sides sealing floor-to-ceiling gap.
-		Util.box(b, Vector3(4.6, 2.0, 0.3), Vector3(2.85, -0.15, -3.65), stone)
-		Util.box(b, Vector3(4.6, 2.0, 0.3), Vector3(2.85, -0.15, -2.15), stone)
-		# Ground aprons covering the terrain hole's edges outside the barn.
-		Util.box(b, Vector3(3.0, 0.3, 6.4), Vector3(6.5, -0.15, -2.6), stone)
-		Util.box(b, Vector3(8.4, 0.3, 2.0), Vector3(3.0, -0.15, -5.2), stone)
-		# Stairs down (visual steps + invisible ramp).
-		for i in 6:
-			var sx := 1.2 + i * 0.62
-			Util.box(b, Vector3(0.62, 0.22, 1.15),
-				Vector3(sx, 0.4 - (i + 1) * 0.56, -2.9), stone, false)
-		Util.shape_box(b, Vector3(5.4, 0.15, 1.15), Vector3(2.8, -1.28, -2.9),
-			Vector3(0, 0, -43.0))
+		# Cellar: a room fully inside the barn footprint (interior x ±3.5,
+		# z ±3.0, floor -2.75, ceiling -0.75 — full standing height), reached
+		# by a long straight stair descending east through an open stairwell
+		# cut in the barn floor. Nothing pokes outside the building, and
+		# every abutting slab overlaps a little so no faces are coplanar.
+		Util.box(b, Vector3(7.6, 0.3, 6.6), Vector3(0, -2.9, 0), stone)
+		_hole_slab(b, -3.8, 3.8, -3.3, 3.3, -1.4, 3.8, -0.85, 0.85, -0.585, 0.33, stone)
+		Util.box(b, Vector3(0.3, 2.5, 6.6), Vector3(-3.65, -1.65, 0), stone)
+		Util.box(b, Vector3(0.3, 2.5, 6.6), Vector3(3.65, -1.65, 0), stone)
+		Util.box(b, Vector3(7.6, 2.5, 0.3), Vector3(0, -1.65, -3.15), stone)
+		Util.box(b, Vector3(7.6, 2.5, 0.3), Vector3(0, -1.65, 3.15), stone)
+		# Stairs: 10 shallow treads (visual only) over an invisible ~29° ramp
+		# running flush from the floor edge down to the cellar floor.
+		for i in 10:
+			Util.box(b, Vector3(0.58, 0.22, 1.6),
+				Vector3(-2.9 + (i + 0.5) * 0.58, 0.39 - (i + 1) * 0.325, 0), stone, false)
+		Util.shape_box(b, Vector3(6.6, 0.15, 1.6), Vector3(0, -1.2, 0),
+			Vector3(0, 0, -29.3))
 		# Lantern and the hidden crate.
 		var cl := OmniLight3D.new()
-		cl.position = Vector3(0.5, -1.5, -0.5)
+		cl.position = Vector3(0, -1.0, 1.6)
 		cl.light_color = Color(1.0, 0.8, 0.5)
 		cl.omni_range = 8.0
 		cl.light_energy = 1.2
 		b.add_child(cl)
-		Util.box(b, Vector3(0.2, 0.35, 0.2), Vector3(0.5, -1.15, -0.5), TexF.mat("metal"), false)
+		Util.box(b, Vector3(0.2, 0.35, 0.2), Vector3(0, -0.95, 1.6), TexF.mat("metal"), false)
 		res.cellar = b.transform * Transform3D(
-			Basis(Vector3.UP, deg_to_rad(35.0)), Vector3(-2.0, -3.05, 0.5))
+			Basis(Vector3.UP, deg_to_rad(35.0)), Vector3(-2.4, -2.75, 1.8))
 	return res
 
 

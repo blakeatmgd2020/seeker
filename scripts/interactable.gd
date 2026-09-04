@@ -21,6 +21,7 @@ var ring_radius := 1.0
 var tool_id := ""    ## which tool is inside ("map", "pencil", ...), if any
 var extinguish_node: GPUParticles3D = null  ## stops emitting when searched
 var seen := false    ## discovered (walked near or spyglassed)
+var noted := false   ## seen while holding pencil + writing surface (map ink)
 var spotted := false ## logged via spyglass + pencil + writing surface
 
 var _tweens: Array[Tween] = []

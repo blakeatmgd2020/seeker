@@ -173,56 +173,69 @@ class MiniOverlay:
 	func _draw() -> void:
 		if main == null:
 			return
-		draw_rect(Rect2(Vector2.ZERO, size),
-			Color(0.88, 0.84, 0.72, 0.95) if paper else Color(0.08, 0.07, 0.05, 0.85), true)
+		# Circular window, always centered on the player. Without the compass
+		# the whole view also rotates so facing is up; the sheet has no
+		# visible edge — past the map bounds the texture just stretches on.
+		var C := size * 0.5
+		var R := minf(size.x, size.y) * 0.5 - 2.0
+		draw_circle(C, R,
+			Color(0.88, 0.84, 0.72, 0.95) if paper else Color(0.08, 0.07, 0.05, 0.85))
 		var pp := Vector2.ZERO
 		var f := 0.0
 		if main.player:
 			pp = _to_px(Vector2(main.player.global_position.x, main.player.global_position.z))
 			f = main.player.cam_yaw
-		if main.tools.compass:
-			_draw_map_and_dots()
-			if main.player:
-				var arrow_col := Color(0.35, 0.3, 0.25) if paper else Color.WHITE
-				_arrow(pp, f, arrow_col)
-		elif main.player:
-			# Rotate the whole view around the player so facing is up.
-			var rz := Transform2D(f, Vector2.ZERO)
-			draw_set_transform_matrix(Transform2D(f, size * 0.5 - rz * pp))
-			_draw_map_and_dots()
-			draw_set_transform_matrix(Transform2D())
-			_arrow(size * 0.5, 0.0, Color(0.35, 0.3, 0.25) if paper else Color.WHITE)
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.85, 0.75, 0.5, 0.9), false, 2.0)
-
-	func _draw_map_and_dots() -> void:
+		var rot := 0.0 if main.tools.compass else f
+		var rz := Transform2D(rot, Vector2.ZERO)
+		var xf := Transform2D(rot, C - rz * pp)
 		if map_tex and not paper:
-			draw_texture_rect(map_tex, Rect2(Vector2.ZERO, size), false)
+			var pts := PackedVector2Array()
+			var uvs := PackedVector2Array()
+			var inv := xf.affine_inverse()
+			for i in 48:
+				var a := TAU * i / 48.0
+				var v := C + Vector2(cos(a), sin(a)) * R
+				pts.append(v)
+				uvs.append((inv * v) / size)
+			draw_polygon(pts, PackedColorArray([Color(1, 1, 1)]), uvs, map_tex)
+		_draw_marks(xf, C, R)
+		if main.player:
+			var arrow_col := Color(0.35, 0.3, 0.25) if paper else Color.WHITE
+			_arrow(C, f if main.tools.compass else 0.0, arrow_col)
+		draw_arc(C, R, 0.0, TAU, 64, Color(0.85, 0.75, 0.5, 0.9), 2.0)
+
+	func _draw_marks(xf: Transform2D, C: Vector2, R: float) -> void:
 		# Nothing is written down until you hold the pencil.
 		if not main.tools.pencil:
 			return
+		var lim := R - 4.0
 		if main.trail.size() > 1:
-			var pts := PackedVector2Array()
-			for p in main.trail:
-				pts.append(_to_px(p))
-			draw_polyline(pts, Color(0.45, 0.12, 0.08, 0.8), 1.3)
+			var ink := Color(0.45, 0.12, 0.08, 0.8)
+			var prev := xf * _to_px(main.trail[0])
+			for i in range(1, main.trail.size()):
+				var cur := xf * _to_px(main.trail[i])
+				if prev.distance_to(C) < lim and cur.distance_to(C) < lim:
+					draw_line(prev, cur, ink, 1.3)
+				prev = cur
 		var sel: Interactable = main.selected_spot()
 		for s in main.structures:
 			if not is_instance_valid(s):
 				continue
+			var p := xf * _to_px(Vector2(s.global_position.x, s.global_position.z))
+			if p.distance_to(C) > lim:
+				continue
 			if paper:
 				# The notepad records what you've logged — and crosses off
-				# every node you've searched.
-				var pn := _to_px(Vector2(s.global_position.x, s.global_position.z))
-				if s.opened:
-					_cross(pn, 3.2, Color(0.42, 0.10, 0.07, 0.9))
+				# every searched node you've noted.
+				if s.opened and s.noted:
+					_cross(p, 3.2, Color(0.42, 0.10, 0.07, 0.9))
 				elif s.spotted:
-					draw_circle(pn, 3.2, Color(0.25, 0.65, 0.25))
+					draw_circle(p, 3.2, Color(0.25, 0.65, 0.25))
 					if s == sel:
-						draw_arc(pn, 5.5, 0.0, TAU, 16, Color(0.25, 0.65, 0.25), 1.4)
+						draw_arc(p, 5.5, 0.0, TAU, 16, Color(0.25, 0.65, 0.25), 1.4)
 				continue
-			if not s.seen:
+			if not s.noted:
 				continue
-			var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
 			if s.opened:
 				_cross(p, 3.2, Color(0.42, 0.10, 0.07, 0.9))
 			elif s.spotted:
@@ -342,7 +355,16 @@ class BigMap:
 			_content_xf = Transform2D(fy, size * 0.5 - rz * pp)
 		draw_set_transform_matrix(_content_xf)
 		if map_tex and not paper:
-			draw_texture_rect(map_tex, Rect2(Vector2.ZERO, size), false)
+			# Oversized sheet with clamped UVs: rotation never shows a map
+			# edge — beyond the bounds the terrain just stretches on.
+			var ext := size * 0.75
+			var qpts := PackedVector2Array([
+				Vector2(-ext.x, -ext.y), Vector2(size.x + ext.x, -ext.y),
+				Vector2(size.x + ext.x, size.y + ext.y), Vector2(-ext.x, size.y + ext.y)])
+			var quvs := PackedVector2Array()
+			for qp in qpts:
+				quvs.append(qp / size)
+			draw_polygon(qpts, PackedColorArray([Color(1, 1, 1)]), quvs, map_tex)
 		if annot_tex:
 			draw_texture_rect(annot_tex, Rect2(Vector2.ZERO, size), false)
 		if main.tools.pencil:
@@ -357,14 +379,14 @@ class BigMap:
 					continue
 				var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
 				if paper:
-					if s.opened:
+					if s.opened and s.noted:
 						_cross(p, 5.0, Color(0.42, 0.10, 0.07, 0.9))
 					elif s.spotted:
 						draw_circle(p, 5.0, Color(0.25, 0.65, 0.25))
 						if s == sel:
 							draw_arc(p, 9.0, 0.0, TAU, 20, Color(0.25, 0.65, 0.25), 2.0)
 					continue
-				if not s.seen:
+				if not s.noted:
 					continue
 				if s.opened:
 					_cross(p, 5.0, Color(0.42, 0.10, 0.07, 0.9))
@@ -481,6 +503,9 @@ class SpyOverlay:
 			draw_line(Vector2(c.x, c.y - r), Vector2(c.x, c.y + r), Color(0, 0, 0, 0.45 * t), 1.0)
 		for sp in spots:
 			var p: Vector2 = cam.unproject_position(sp.pos)
+			# The vignette hides the world outside the lens — labels too.
+			if t > 0.03 and p.distance_to(c) > r - 16.0:
+				continue
 			var centered: bool = sp.get("centered", false)
 			var col := Color(0.5, 1.0, 0.5) if centered else Color(1, 0.95, 0.75)
 			draw_circle(p, 3.0 if centered else 2.5,
@@ -493,7 +518,7 @@ class SpyOverlay:
 
 func _ready() -> void:
 	var help := _label(14, Color(1, 1, 1, 0.75))
-	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom\nClick target · Right-click / E search · WASD move · Arrows turn/walk · Shift sprint · Space jump\nZ spyglass · M map · N notepad · Tab cycle spots · F8 / Dev Note feedback · Esc deselect / menu"
+	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom · Click target · Right-click / E search\nWASD move · Arrows turn/walk · Shift sprint · Space jump · C crouch · ` autorun\nZ spyglass · M map · N notepad · Tab cycle spots · F8 / Dev Note feedback · Esc deselect / menu"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(14, 8)
 	add_child(help)

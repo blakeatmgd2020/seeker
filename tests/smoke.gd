@@ -72,6 +72,9 @@ func _process(_delta: float) -> bool:
 	if main.world == null:
 		if main.title == null or not main.title.visible:
 			fails.append("title screen not shown at boot")
+		# Test runs must not leave feedback reports behind; writing is
+		# re-enabled only for the feedback-pipeline check below.
+		main.feedback.enabled = false
 		main.start_daily()
 	if main.world == null:
 		print("FAIL: start_daily did not build a world")
@@ -227,6 +230,37 @@ func _process(_delta: float) -> bool:
 	if main.hud.winded_label.visible:
 		fails.append("winded label did not clear")
 
+	# Feedback round 4: crouch/autorun actions, ice helper, crouch toggle,
+	# and the not-retroactive pencil-marking rule.
+	if not (InputMap.has_action("crouch") and InputMap.has_action("autorun")):
+		fails.append("crouch/autorun input actions missing")
+	main.player.set_crouch(true)
+	if not main.player.crouched:
+		fails.append("crouch did not engage")
+	main.player.set_crouch(false)
+	if main.player.crouched:
+		fails.append("crouch did not release in open air")
+	if main.on_ice(Vector3(0, 500.0, 0)):
+		fails.append("on_ice true far above any pond")
+	var ns: Interactable = null
+	for s in main.structures:
+		if s.tool_id.is_empty() and s.kind != "nest" and not s.opened:
+			ns = s
+			break
+	main.player.global_position = ns.global_position + Vector3(3, 1, 0)
+	main.player._update_discovery(false)
+	if not ns.seen:
+		fails.append("proximity discovery broke")
+	if ns.noted:
+		fails.append("node noted without pencil+surface")
+	main.tools.pencil = true
+	main.tools.map = true
+	main.player._update_discovery(false)
+	if not ns.noted:
+		fails.append("node not noted on re-sight with pencil+map")
+	main.tools.pencil = false
+	main.tools.map = false
+
 	# Random mode: deterministic per seed.
 	main.start_random(12345)
 	if main.game_mode != "random" or main.structures.size() < 20:
@@ -264,7 +298,10 @@ func _process(_delta: float) -> bool:
 	if main.game_mode != "daily":
 		fails.append("start_daily did not restore daily mode")
 
-	# Feedback: note + summary land in the session report file.
+	# Feedback: note + summary land in the session report file. Writing is
+	# enabled just for this check, then the file is removed and writing
+	# stays off so later world loads can't recreate it.
+	main.feedback.enabled = true
 	main.feedback.add_note("bug", "smoke test note")
 	main.feedback.write_summary()
 	var fa := FileAccess.open(main.feedback._file_abs, FileAccess.READ)
@@ -276,6 +313,7 @@ func _process(_delta: float) -> bool:
 		if ftxt.find("smoke test note") == -1 or ftxt.find("Session summary") == -1:
 			fails.append("feedback report missing note or summary")
 		DirAccess.remove_absolute(main.feedback._file_abs)
+	main.feedback.enabled = false
 
 	# Every biome must generate a valid world.
 	for b in Biomes.all_ids():
@@ -375,8 +413,10 @@ func _cave_test_tick(main) -> bool:
 	if barn == null:
 		_fails.append("no cellar barn found for walk-in test")
 		return _finish(_fails)
+	# Start on the barn floor west of the stairwell mouth and walk east —
+	# down the full stair, standing, with no jumping allowed.
 	var pl = main.player
-	pl.global_position = barn.global_transform * Vector3(0.4, 0.7, -2.9)
+	pl.global_position = barn.global_transform * Vector3(-4.2, 0.7, 0.0)
 	pl.velocity = Vector3.ZERO
 	var dirw: Vector3 = barn.global_transform.basis * Vector3(1, 0, 0)
 	pl.set_facing(atan2(-dirw.x, -dirw.z))

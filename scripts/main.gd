@@ -13,6 +13,7 @@ uniform vec4 base_col : source_color = vec4(0.12, 0.34, 0.44, 0.62);
 uniform float wind_amt = 0.15;
 uniform vec3 player_pos = vec3(0.0);
 uniform float wake = 0.0;
+uniform vec2 vel_dir = vec2(0.0, 1.0);
 varying vec3 wpos;
 
 void vertex() {
@@ -27,8 +28,13 @@ void fragment() {
 		+ sin((uv.x + uv.y) * 0.21 - t * (0.6 + wind_amt * 1.8));
 	float w2 = sin(uv.y * 0.4 - t * (0.7 + wind_amt * 2.2))
 		+ sin((uv.y - uv.x) * 0.17 + t * 0.5);
-	float d = distance(uv, player_pos.xz);
-	float ring = cos(d * 9.0 - t * 7.0) * exp(-d * 0.7) * wake * 6.0;
+	vec2 rel = uv - player_pos.xz;
+	float d = length(rel);
+	// The disturbance trails BEHIND the direction of travel — a wake,
+	// not a circle: strongest astern, faint at the bow.
+	float behind = 0.5 + 0.5 * dot(normalize(rel + vec2(1e-4)), -vel_dir);
+	float ring = cos(d * 9.0 - t * 7.0) * exp(-d * 0.7)
+		* wake * (0.9 + 5.1 * behind * behind);
 	vec3 nm = normalize(vec3((w1 * amp + ring) * 0.09, (w2 * amp + ring) * 0.09, 1.0));
 	NORMAL_MAP = nm * 0.5 + 0.5;
 	NORMAL_MAP_DEPTH = 1.0;
@@ -40,6 +46,7 @@ void fragment() {
 }
 "
 
+const VERSION := "r4 · 2026-09-04"
 const WEEKDAYS := ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTHS := ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const STRUCTURE_TOTAL := 20
@@ -78,6 +85,7 @@ var _sun: DirectionalLight3D
 var _weather_node: GPUParticles3D = null
 var _water_mat: ShaderMaterial = null
 var _wake := 0.0
+var _wake_dir := Vector2(0, 1)
 var _cur_vils: Array = []
 
 
@@ -109,8 +117,12 @@ func _process(delta: float) -> void:
 		and player.global_position.y < terrain.water_y + 0.6 \
 		and Vector2(player.velocity.x, player.velocity.z).length() > 1.2
 	_wake = move_toward(_wake, 1.0 if in_water else 0.0, delta * 3.0)
+	var hv := Vector2(player.velocity.x, player.velocity.z)
+	if hv.length() > 1.0:
+		_wake_dir = _wake_dir.lerp(hv.normalized(), minf(1.0, delta * 6.0)).normalized()
 	_water_mat.set_shader_parameter("player_pos", player.global_position)
 	_water_mat.set_shader_parameter("wake", _wake)
+	_water_mat.set_shader_parameter("vel_dir", _wake_dir)
 
 
 func _ready() -> void:
@@ -316,10 +328,9 @@ func _build_world() -> void:
 		terrain.add_flat_patch(p, rf, rf + 3.5,
 			terrain.height_at(p.x, p.y) - terrain.drop_under(p, rf * 0.7) * 0.35)
 		if b.basement:
-			# Open the terrain under the cellar stairwell.
-			var yaw_r: float = deg_to_rad(b.yaw)
-			terrain.add_hole_rect(p + Vector2(2.8, -2.9).rotated(-yaw_r),
-				Vector2(2.2, 0.7), yaw_r)
+			# Open the terrain under the central cellar stairwell. Removal can
+			# reach rect + ~3 m; the widened foundation slab covers all of it.
+			terrain.add_hole_rect(p, Vector2(3.4, 0.95), deg_to_rad(b.yaw))
 	for wc in lay.wells:
 		terrain.add_flat_patch(wc, 2.2, 4.0, terrain.height_at(wc.x, wc.y))
 	var vnodes := 0
@@ -407,7 +418,7 @@ func _build_world() -> void:
 	for c in climbables:
 		nest_tops.append(Vector3(c.axis.x, c.top_y + 0.55, c.axis.z))
 	if nest_tops.size() >= 2:
-		Birds.build(world, terrain, wrng, nest_tops)
+		Birds.build(world, terrain, wrng, nest_tops).main = self
 
 	# Tool locations are deterministic per seed.
 	var trng := RandomNumberGenerator.new()
@@ -691,6 +702,14 @@ func coffee_remaining() -> int:
 	return maxi(0, coffee_until_ms - Time.get_ticks_msec()) / 1000
 
 
+## True when the position stands on a frozen pond's ice sheet.
+func on_ice(p: Vector3) -> bool:
+	return world != null and terrain != null and not biome.is_empty() \
+		and biome.terrain.ice_solid \
+		and absf(p.y - terrain.water_y) < 0.8 \
+		and terrain.height_at(p.x, p.z) < terrain.water_y - 0.15
+
+
 # --- pencil / spotting ---------------------------------------------------
 
 ## The pencil needs something to write on.
@@ -715,6 +734,7 @@ func add_spot(s: Interactable) -> void:
 	if s.spotted or s.opened:
 		return
 	s.spotted = true
+	s.noted = true
 	spotted.append(s)
 	if spotted.size() == 1:
 		spot_idx = 0
@@ -774,7 +794,8 @@ func _setup_input() -> void:
 		["move_left", KEY_A], ["move_right", KEY_D], ["jump", KEY_SPACE],
 		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z],
 		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M], ["toggle_pad", KEY_N],
-		["feedback", KEY_F8], ["turn_left", KEY_LEFT], ["turn_right", KEY_RIGHT]]
+		["feedback", KEY_F8], ["turn_left", KEY_LEFT], ["turn_right", KEY_RIGHT],
+		["crouch", KEY_C], ["autorun", KEY_QUOTELEFT]]
 	for b in binds:
 		if InputMap.has_action(b[0]):
 			continue
@@ -882,6 +903,7 @@ func _shot_routine() -> void:
 	hud.set_tools(tools)
 	for s in structures:
 		s.seen = true
+		s.noted = true
 	add_spot(nearest)
 	player.stamina = 0.2
 	player._stamina_locked = true
@@ -983,4 +1005,37 @@ func _shot_routine() -> void:
 			await get_tree().create_timer(1.0).timeout
 			get_viewport().get_texture().get_image().save_png(dir.path_join("shot_cave.png"))
 			break
+	# Find a world with a cellar: photograph the barn outside and the room.
+	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17]:
+		start_random(sv)
+		var crate: Interactable = null
+		for s in structures:
+			if s.display_name == "cellar crate":
+				crate = s
+		if crate == null:
+			continue
+		var barn: Node3D = null
+		for ch in world.get_node("Village").get_children():
+			if String(ch.name).contains("Barn") \
+					and ch.global_position.distance_to(crate.global_position) < 12.0:
+				barn = ch
+				break
+		if barn == null:
+			continue
+		var xcam := Camera3D.new()
+		add_child(xcam)
+		xcam.global_position = barn.global_transform * Vector3(11.0, 5.0, 9.0)
+		xcam.look_at(barn.global_position + Vector3(0, 1.0, 0))
+		xcam.current = true
+		await get_tree().create_timer(0.8).timeout
+		get_viewport().get_texture().get_image().save_png(dir.path_join("shot_cellar_ext.png"))
+		player.cam.make_current()
+		player.global_position = barn.global_transform * Vector3(2.2, -2.65, 0.0)
+		player.velocity = Vector3.ZERO
+		var cv2: Vector3 = crate.global_position - player.global_position
+		player.set_facing(atan2(-cv2.x, -cv2.z))
+		player.set_target(crate)
+		await get_tree().create_timer(1.0).timeout
+		get_viewport().get_texture().get_image().save_png(dir.path_join("shot_cellar.png"))
+		break
 	get_tree().quit()
