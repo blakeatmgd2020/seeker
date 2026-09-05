@@ -421,39 +421,42 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 ## pokes outside the building, and abutting slabs overlap a little so no
 ## faces are coplanar. Returns the crate's local resting spot.
 static func _cellar(b: StaticBody3D, run_half: float) -> Vector3:
+	# Deep vaulted cellar: floor -3.35, ceiling -0.75 (tall room), stair
+	# drop 3.85 over the given run.
 	var stone := TexF.mat("stone")
-	Util.box(b, Vector3(7.6, 0.3, 6.6), Vector3(0, -2.9, 0), stone)
+	Util.box(b, Vector3(7.6, 0.3, 6.6), Vector3(0, -3.5, 0), stone)
 	var x0 := -(run_half - 0.4)
 	var x1 := run_half - 0.4
 	var run := x1 - x0
-	var slope := 3.25 / run
+	var slope := 3.85 / run
 	# The ceiling opens above the stairs from where heads pass through it.
 	var hx0 := x0 + 0.92 / slope - 0.35
 	_hole_slab(b, -3.8, 3.8, -3.3, 3.3, hx0, 3.8, -0.85, 0.85, -0.585, 0.33, stone)
-	Util.box(b, Vector3(0.3, 2.5, 6.6), Vector3(-3.65, -1.65, 0), stone)
-	Util.box(b, Vector3(0.3, 2.5, 6.6), Vector3(3.65, -1.65, 0), stone)
-	Util.box(b, Vector3(7.6, 2.5, 0.3), Vector3(0, -1.65, -3.15), stone)
-	Util.box(b, Vector3(7.6, 2.5, 0.3), Vector3(0, -1.65, 3.15), stone)
+	Util.box(b, Vector3(0.3, 3.05, 6.6), Vector3(-3.65, -1.925, 0), stone)
+	Util.box(b, Vector3(0.3, 3.05, 6.6), Vector3(3.65, -1.925, 0), stone)
+	Util.box(b, Vector3(7.6, 3.05, 0.3), Vector3(0, -1.925, -3.15), stone)
+	Util.box(b, Vector3(7.6, 3.05, 0.3), Vector3(0, -1.925, 3.15), stone)
 	# Shallow treads (visual only) over an invisible ramp running flush
-	# from the floor edge down to the cellar floor.
+	# from the floor edge down to the cellar floor. The last tread is the
+	# floor itself — a flush tread there would z-fight it.
 	var n := maxi(int(roundf(run / 0.58)), 6)
 	var step_d := run / n
-	var rise := 3.25 / n
-	for i in n:
+	var rise := 3.85 / n
+	for i in n - 1:
 		Util.box(b, Vector3(step_d, 0.22, 1.6),
 			Vector3(x0 + (i + 0.5) * step_d, 0.39 - (i + 1) * rise, 0), stone, false)
-	var ang := rad_to_deg(atan2(3.25, run))
-	Util.shape_box(b, Vector3(sqrt(run * run + 3.25 * 3.25), 0.15, 1.6),
-		Vector3(0, -1.2, 0), Vector3(0, 0, -ang))
+	var ang := rad_to_deg(atan2(3.85, run))
+	Util.shape_box(b, Vector3(sqrt(run * run + 3.85 * 3.85), 0.15, 1.6),
+		Vector3(0, -1.5, 0), Vector3(0, 0, -ang))
 	# Lantern and the crate's corner.
 	var cl := OmniLight3D.new()
-	cl.position = Vector3(0, -1.0, 1.6)
+	cl.position = Vector3(0, -1.2, 1.6)
 	cl.light_color = Color(1.0, 0.8, 0.5)
-	cl.omni_range = 8.0
+	cl.omni_range = 9.0
 	cl.light_energy = 1.2
 	b.add_child(cl)
-	Util.box(b, Vector3(0.2, 0.35, 0.2), Vector3(0, -0.95, 1.6), TexF.mat("metal"), false)
-	return Vector3(-2.4, -2.75, 1.8)
+	Util.box(b, Vector3(0.2, 0.35, 0.2), Vector3(0, -1.15, 1.6), TexF.mat("metal"), false)
+	return Vector3(-2.4, -3.35, 1.8)
 
 
 static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String,
@@ -464,17 +467,25 @@ static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String,
 	root.add_child(b)
 	b.position = Vector3(pos.x, terrain.height_at(pos.x, pos.y), pos.y)
 	var ring_mat := TexF.mat("clay") if style == "adobe" else TexF.mat("stone")
-	Util.cyl(b, 1.1, 1.2, 1.0, Vector3(0, 0.5, 0), ring_mat)
 	var res := {}
 	if cavern:
-		# An open shaft: hollow rim collision (four arcs), stone shaft walls
-		# down through the terrain hole, and a cavern room at the bottom.
+		# A genuinely open shaft: the rim is a ring of segments (a capped
+		# cylinder would read as a sealed top), stone shaft walls run down
+		# through the terrain hole, and a cavern room waits at the bottom.
 		var stone := TexF.mat("stone")
-		for rw in [[Vector3(2.5, 1.0, 0.3), Vector3(0, 0.5, 1.05)],
-				[Vector3(2.5, 1.0, 0.3), Vector3(0, 0.5, -1.05)],
-				[Vector3(0.3, 1.0, 1.9), Vector3(1.05, 0.5, 0)],
-				[Vector3(0.3, 1.0, 1.9), Vector3(-1.05, 0.5, 0)]]:
-			Util.shape_box(b, rw[0], rw[1])
+		for i in 8:
+			var a := TAU * i / 8.0
+			Util.box(b, Vector3(0.95, 1.0, 0.34),
+				Vector3(cos(a) * 1.06, 0.5, sin(a) * 1.06), ring_mat, true,
+				Vector3(0, rad_to_deg(a) + 90.0, 0))
+		# Plank cover: sealed until the seeker owns the rope (main hides the
+		# planks and disables the collider), so nobody falls in ropeless.
+		var cover := Node3D.new()
+		b.add_child(cover)
+		for pz in [-0.85, -0.28, 0.28, 0.85]:
+			Util.box(cover, Vector3(2.3, 0.09, 0.46), Vector3(0, 1.06, pz),
+				TexF.mat("plank"), false)
+		var cover_shape := Util.shape_box(b, Vector3(2.3, 0.12, 2.3), Vector3(0, 1.06, 0))
 		Util.box(b, Vector3(0.35, 4.3, 2.5), Vector3(-1.07, -2.0, 0), stone)
 		Util.box(b, Vector3(0.35, 4.3, 2.5), Vector3(1.07, -2.0, 0), stone)
 		Util.box(b, Vector3(2.5, 4.3, 0.35), Vector3(0, -2.0, -1.07), stone)
@@ -503,12 +514,13 @@ static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String,
 		rope.visible = false
 		res.drop = {axis = Vector3(pos.x, b.position.y, pos.y),
 			rim_y = b.position.y + 1.0, floor_y = b.position.y - 6.35,
-			rope = rope}
+			rope = rope, cover = cover, cover_shape = cover_shape}
 		if cache:
 			res.spec = {kind = "crate", display = "well cache",
 				xform = b.transform * Transform3D(
 					Basis(Vector3.UP, deg_to_rad(50.0)), Vector3(1.9, -6.35, 1.9))}
 	else:
+		Util.cyl(b, 1.1, 1.2, 1.0, Vector3(0, 0.5, 0), ring_mat)
 		Util.cyl(b, 0.85, 0.85, 0.1, Vector3(0, 1.02, 0), TexF.plain(Color(0.05, 0.08, 0.1)), Vector3.ZERO, 14)
 		Util.shape_cyl(b, 1.2, 1.0, Vector3(0, 0.5, 0))
 	if style == "adobe":

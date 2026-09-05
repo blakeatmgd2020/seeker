@@ -114,6 +114,12 @@ func _open_big(view: BigMap) -> void:
 	var side := minf(vp.x, vp.y) * 0.82
 	view.size = Vector2(side, side)
 	view.position = (vp - view.size) * 0.5
+	if main and main.hunt_won and view == big_map:
+		# Recap layout: a bit smaller and lower, leaving the report
+		# centered above the map.
+		side = minf(vp.x, vp.y) * 0.7
+		view.size = Vector2(side, side)
+		view.position = Vector2((vp.x - side) * 0.5, vp.y - side - 26.0)
 	big_dim.visible = true
 	view.visible = true
 
@@ -126,6 +132,15 @@ func close_big_views() -> void:
 
 func big_map_open() -> bool:
 	return big_map.visible or big_pad.visible
+
+
+## While a camera/steer drag is captured the cursor sits pinned at screen
+## center — over the big map — so the map must go deaf to the mouse or it
+## eats every motion event and steering "ticks" instead of turning.
+func set_view_drag(on: bool) -> void:
+	var mf := Control.MOUSE_FILTER_IGNORE if on else Control.MOUSE_FILTER_STOP
+	big_map.mouse_filter = mf
+	big_pad.mouse_filter = mf
 
 
 func clear_annotations() -> void:
@@ -145,7 +160,7 @@ func set_tools(t: Dictionary) -> void:
 	map_overlay.paper = t.notepad and not t.map
 	compass.visible = t.compass
 	# The row sits under the minimap when it's up, else near the corner.
-	item_box.position.y = 348.0 if map_panel.visible else 70.0
+	item_box.position.y = 278.0 if map_panel.visible else 48.0
 
 
 func _item_chip(id: String) -> Control:
@@ -731,7 +746,7 @@ func _ready() -> void:
 	item_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	item_box.alignment = BoxContainer.ALIGNMENT_END
 	item_box.add_theme_constant_override("separation", 3)
-	item_box.position = Vector2(-250, 70)
+	item_box.position = Vector2(-250, 48)
 	item_box.size = Vector2(236, 48)
 	item_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(item_box)
@@ -740,7 +755,7 @@ func _ready() -> void:
 	map_panel = Control.new()
 	map_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	map_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	map_panel.position = Vector2(-238, 118)
+	map_panel.position = Vector2(-238, 48)
 	map_panel.size = Vector2(224, 224)
 	map_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	map_panel.visible = false
@@ -906,12 +921,17 @@ func set_stamina(v: float, locked: bool, lock_left := 0.0) -> void:
 			stam_fill.color = Color(0.4, 0.85, 0.35)
 
 
-func win(total: int, time_str: String) -> void:
-	# A compact strip at the very top so the path recap map stays clear.
+## The end-of-map report: centered above the recap map, for a won hunt or
+## a map ended early from the menu.
+func show_recap(found: int, total: int, time_str: String, ended := false) -> void:
 	banner.visible = true
-	banner.position = Vector2(-330, 4)
-	banner_label.add_theme_font_size_override("font_size", 18)
-	banner_label.text = "ALL %d FOUND in %s — here is everywhere you went. M closes." % [total, time_str]
+	banner.position = Vector2(-330, 22)
+	banner_label.add_theme_font_size_override("font_size", 20)
+	if ended:
+		banner_label.text = "MAP ENDED — %d of %d found in %s.\nHere is everything, and everywhere you went. M closes." % [
+			found, total, time_str]
+	else:
+		banner_label.text = "EVERY HIDING PLACE SEARCHED — all %d in %s!\nHere is everywhere you went. M closes." % [total, time_str]
 	_open_big(big_map)
 
 

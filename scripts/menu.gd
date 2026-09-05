@@ -60,6 +60,9 @@ func _ready() -> void:
 	_random_btn.pressed.connect(func() -> void:
 		_ask("Generate a fresh random map?",
 			func() -> void: main.new_random_map()))
+	_btn(v, "End current map…").pressed.connect(func() -> void:
+		_ask("End this hunt and reveal the map, every node, and your path?",
+			func() -> void: main.end_current_map()))
 	v.add_child(HSeparator.new())
 
 	_travel_label = Label.new()

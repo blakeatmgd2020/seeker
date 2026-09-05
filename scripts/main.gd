@@ -46,10 +46,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r6 · 2026-09-04 17:30"
+const VERSION := "r7 · 2026-09-04 18:40"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r7 · 2026-09-04 18:40 — Wells fixed: open rims you can see down, plank covers until you own the rope (no more ropeless traps), and climbing out actually works. Cellars deeper with taller vaults; no bottom-step flicker. Cave exits walkable (no jump needed); caves can be tucked into the barrier ridges. Sprint decays to plain walking speed. W or mouse-run cancels autorun. Smooth mouse steering with the map open. Tighter top-right HUD. Esc menu: End current map reveals the recap. Recap report centered above a smaller map. Hollow stumps look hollow; firewood is smaller and often near fire pits.",
 	"r6 · 2026-09-04 17:30 — Conditional items: irons/rope are only hidden when the world actually has nests / a cavern well (6-8 items per world; ~1 in 4 maps has no nests). Grey unfound-item roster removed; found items show as circular icons under the minimap. Movement speed readout (walk = 100%). Real sitting pose; leaving crouch or sit always stands you up. Square coffee button with icon. Wild nodes favor shorelines. Tree canopies now block the spyglass. Compact win banner. This version history.",
 	"r5 · 2026-09-04 — Rope + well caverns (climb in over the rim, slide down). Two-story, two-room, and roofdeck houses with ladders; house cellars, some empty. Sit (C). Keep moving with the map or Dev Note open. Victory recap draws your whole path. Birds perch on roofs/trees and only sometimes flee to nests. Eraser retired — the pencil erases. Scope vertically un-inverted, labels clipped to the lens.",
 	"r4 · 2026-09-04 — Cellars rebuilt: walk in standing, nothing pokes outside. Crouch. Slippery ice. Autorun (`). Pencil marks no longer retroactive — re-sight to ink. Circular minimap; rotating maps have no sheet edge. Directional water wake. Birds scatter when approached. Version stamp.",
@@ -362,17 +363,32 @@ func _build_world() -> void:
 	var cave_yaw := 0.0
 	var has_cave := false
 	if wrng.randf() < 0.6:
-		for attempt in 60:
-			var a := wrng.randf_range(0.0, TAU)
-			var r := wrng.randf_range(60.0, 200.0)
-			var p := Vector2(cos(a) * r, sin(a) * r)
+		# Prefer a mine mouth tucked into the barrier ridge, doorway facing
+		# the valley; fall back to an open-country site.
+		for attempt in 90:
+			var p: Vector2
+			var yaw := 0.0
+			var ridge: bool = attempt < 45
+			if ridge:
+				var a := wrng.randf_range(0.0, TAU)
+				p = Vector2(cos(a), sin(a)) * wrng.randf_range(188.0, 212.0)
+				p.x = clampf(p.x, -212.0, 212.0)
+				p.y = clampf(p.y, -212.0, 212.0)
+				yaw = atan2(-p.x, -p.y) + wrng.randf_range(-0.35, 0.35)
+			else:
+				var a := wrng.randf_range(0.0, TAU)
+				var r := wrng.randf_range(60.0, 200.0)
+				p = Vector2(cos(a) * r, sin(a) * r)
+				yaw = wrng.randf_range(0.0, TAU)
 			if absf(p.x) > 218.0 or absf(p.y) > 218.0:
 				continue
 			if not _village_clear(p, 14.0):
 				continue
 			if terrain.height_at(p.x, p.y) < terrain.water_y + 2.0:
 				continue
-			if terrain.normal_at(p.x, p.y).y < 0.88 or terrain.drop_under(p, 10.0) > 2.0:
+			# Ridge sites can be steep — the carve patch flattens them.
+			if not ridge and (terrain.normal_at(p.x, p.y).y < 0.88
+					or terrain.drop_under(p, 10.0) > 2.0):
 				continue
 			var clear := true
 			for sp in wild:
@@ -382,7 +398,7 @@ func _build_world() -> void:
 			if not clear:
 				continue
 			cave_pos = p
-			cave_yaw = wrng.randf_range(0.0, TAU)
+			cave_yaw = yaw
 			has_cave = true
 			# The flat patch must bury the whole chamber, which extends
 			# behind the mound (local -Z), so shift the patch that way.
@@ -548,6 +564,33 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 			var pp := Vector2(sp.x, sp.z)
 			terrain.add_flat_patch(pp, 1.4, 2.8,
 				terrain.height_at(pp.x, pp.y) - terrain.drop_under(pp, 1.4) * 0.35)
+
+	# Firewood keeps company: given a campfire, stacks usually move beside it.
+	var fires: Array[Vector2] = []
+	for sp in bag:
+		if sp.kind == "campfire":
+			fires.append(Vector2(sp.x, sp.z))
+	if not fires.is_empty():
+		for sp in bag:
+			if sp.kind != "firewood" or wrng.randf() > 0.65:
+				continue
+			var fc := fires[wrng.randi_range(0, fires.size() - 1)]
+			for attempt in 20:
+				var a := wrng.randf_range(0.0, TAU)
+				var q := fc + Vector2(cos(a), sin(a)) * wrng.randf_range(3.0, 6.5)
+				if absf(q.x) > 228.0 or absf(q.y) > 228.0:
+					continue
+				if not _village_clear(q, 10.0):
+					continue
+				if terrain.height_at(q.x, q.y) < terrain.water_y + 1.2:
+					continue
+				if terrain.normal_at(q.x, q.y).y < 0.62:
+					continue
+				sp.x = q.x
+				sp.z = q.y
+				terrain.add_flat_patch(q, 1.4, 2.8,
+					terrain.height_at(q.x, q.y) - terrain.drop_under(q, 1.4) * 0.35)
+				break
 
 	var top := terrain.top_spot
 	bag.append({kind = "chest", display = "old chest", x = top.x, z = top.z})
@@ -731,9 +774,12 @@ func _collect_tool(s: Interactable) -> void:
 	tools[id] = true
 	hud.set_tools(tools)
 	if id == "rope":
-		# The rope now hangs in every cavern well.
+		# The rope now hangs in every cavern well, and the plank covers
+		# come off — the shafts are open.
 		for dr in well_drops:
 			dr.rope.visible = true
+			dr.cover.visible = false
+			dr.cover_shape.set_deferred("disabled", true)
 	hud.toast("You found the %s!" % ("climbing irons" if id == "irons" else id))
 
 
@@ -834,7 +880,19 @@ func _on_searched(s: Interactable) -> void:
 		hunt_won = true
 		feedback.finds += 1
 		var secs := int((Time.get_ticks_msec() - world_start_ms) / 1000.0)
-		hud.win(structures.size(), "%d:%02d" % [secs / 60, secs % 60])
+		hud.show_recap(searched_count, structures.size(),
+			"%d:%02d" % [secs / 60, secs % 60], false)
+
+
+## Menu action: give up on the map and reveal everything — the full map,
+## every node, and the path walked.
+func end_current_map() -> void:
+	if world == null or hunt_won:
+		return
+	hunt_won = true
+	var secs := int((Time.get_ticks_msec() - world_start_ms) / 1000.0)
+	hud.show_recap(searched_count, structures.size(),
+		"%d:%02d" % [secs / 60, secs % 60], true)
 
 
 func _update_day_info() -> void:

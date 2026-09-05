@@ -10,7 +10,9 @@ var _stage := 0
 var _walk_frames := 0
 var _walk_house: Node3D = null
 var _cave_body: Node3D = null
+var _cave_phase := 0
 var _well_drop: Dictionary = {}
+var _well_phase := 0
 var _fails: Array[String] = []
 
 
@@ -314,6 +316,13 @@ func _process(_delta: float) -> bool:
 	main.tools.pencil = false
 	main.tools.map = false
 
+	# Menu action: End current map reveals the recap without finishing.
+	main.end_current_map()
+	if not main.hunt_won or not main.hud.big_map.visible:
+		fails.append("End current map did not open the recap")
+	main.hud.close_big_views()
+	main.hud.hide_banner()
+
 	# Random mode: deterministic per seed.
 	main.start_random(12345)
 	if main.game_mode != "random" or main.structures.size() < 20:
@@ -466,12 +475,28 @@ func _walk_test_tick(main) -> bool:
 
 func _cave_test_tick(main) -> bool:
 	_walk_frames += 1
-	if _walk_frames < 260:
+	if _cave_phase == 0:
+		if _walk_frames < 260:
+			return false
+		Input.action_release("move_forward")
+		var depth: float = main.player.global_position.y - _cave_body.global_position.y
+		if depth > -3.0:
+			_fails.append("player could not descend into the cave (depth %.2f)" % depth)
+		# Now walk back OUT — standing, no jumping allowed.
+		var pl0 = main.player
+		var outw: Vector3 = _cave_body.global_transform.basis * Vector3(0, 0, 1)
+		pl0.set_facing(atan2(-outw.x, -outw.z))
+		pl0.velocity = Vector3.ZERO
+		Input.action_press("move_forward")
+		_cave_phase = 1
+		_walk_frames = 0
+		return false
+	if _walk_frames < 420:
 		return false
 	Input.action_release("move_forward")
-	var depth: float = main.player.global_position.y - _cave_body.global_position.y
-	if depth > -3.0:
-		_fails.append("player could not descend into the cave (depth %.2f)" % depth)
+	var exdepth: float = main.player.global_position.y - _cave_body.global_position.y
+	if exdepth < -0.6:
+		_fails.append("player could not walk OUT of the cave (depth %.2f)" % exdepth)
 	# Finally: walk down a cellar stairwell (barn or house).
 	var barn: Node3D = null
 	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17, 29, 41]:
@@ -526,7 +551,15 @@ func _cellar_test_tick(main) -> bool:
 	if _well_drop.is_empty():
 		_fails.append("no cavern well found for descent test")
 		return _finish(_fails)
+	if _well_drop.cover_shape.disabled:
+		_fails.append("well cover should start sealed (no rope yet)")
 	main.tools.rope = true
+	# Owning the rope opens the plank covers in _collect_tool; the test
+	# grants the rope directly, so open them the same way here.
+	for dr in main.well_drops:
+		dr.rope.visible = true
+		dr.cover.visible = false
+		dr.cover_shape.set_deferred("disabled", true)
 	var pl = main.player
 	pl.global_position = _well_drop.axis + Vector3(1.55, 0.2, 0.0)
 	pl.velocity = Vector3.ZERO
@@ -538,13 +571,27 @@ func _cellar_test_tick(main) -> bool:
 
 func _well_test_tick(main) -> bool:
 	_walk_frames += 1
-	if _walk_frames == 100:
-		Input.action_release("move_forward")
-	if _walk_frames < 560:
+	if _well_phase == 0:
+		if _walk_frames == 100:
+			Input.action_release("move_forward")
+		if _walk_frames < 560:
+			return false
+		var depth: float = main.player.global_position.y - _well_drop.axis.y
+		if depth > -4.0:
+			_fails.append("player could not rope-descend the well (depth %.2f)" % depth)
+			return _finish(_fails)
+		# Climb back out on the rope — being trapped down there is exactly
+		# the bug this phase exists to catch.
+		Input.action_press("move_forward")
+		_well_phase = 1
+		_walk_frames = 0
 		return false
-	var depth: float = main.player.global_position.y - _well_drop.axis.y
-	if depth > -4.0:
-		_fails.append("player could not rope-descend the well (depth %.2f)" % depth)
+	if _walk_frames < 700:
+		return false
+	Input.action_release("move_forward")
+	var ex: float = main.player.global_position.y - _well_drop.axis.y
+	if ex < -1.0:
+		_fails.append("player trapped in the well (rel y %.2f)" % ex)
 	return _finish(_fails)
 
 

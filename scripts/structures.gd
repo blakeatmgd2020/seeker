@@ -248,7 +248,14 @@ static func _bone_pile(s: Interactable) -> void:
 static func _stump(s: Interactable) -> void:
 	var bark := TexF.mat("bark")
 	Util.cyl(s, 0.5, 0.64, 0.75, Vector3(0, 0.375, 0), bark, Vector3.ZERO, 14)
-	Util.cyl(s, 0.4, 0.4, 0.06, Vector3(0, 0.72, 0), TexF.plain(Color(0.12, 0.08, 0.05)), Vector3.ZERO, 12)
+	# The dark hollow sits proud of the trunk's cap and a bark lip rings
+	# it, so the stump reads as genuinely hollow.
+	Util.cyl(s, 0.42, 0.42, 0.06, Vector3(0, 0.735, 0), TexF.plain(Color(0.07, 0.05, 0.03)), Vector3.ZERO, 12)
+	var lip := TorusMesh.new()
+	lip.inner_radius = 0.4
+	lip.outer_radius = 0.53
+	lip.material = bark
+	Util.mesh(s, lip, Vector3(0, 0.765, 0))
 	for r in [[0.0, 0.62], [120.0, 0.6], [240.0, 0.66]]:
 		var a: float = deg_to_rad(r[0])
 		Util.box(s, Vector3(0.3, 0.18, 0.5), Vector3(cos(a) * r[1], 0.09, sin(a) * r[1]),
@@ -300,20 +307,20 @@ static func _cairn(s: Interactable) -> void:
 
 static func _firewood(s: Interactable) -> void:
 	var bark := TexF.mat("bark")
-	for z in [-0.36, -0.12, 0.12, 0.36]:
-		Util.cyl(s, 0.17, 0.17, 1.4, Vector3(0, 0.17, z), bark, Vector3(0, 0, 90), 9)
-	for z in [-0.24, 0.0, 0.24]:
-		Util.cyl(s, 0.16, 0.16, 1.35, Vector3(0, 0.46, z), bark, Vector3(0, 0, 90), 9)
+	for z in [-0.27, -0.09, 0.09, 0.27]:
+		Util.cyl(s, 0.13, 0.13, 1.05, Vector3(0, 0.13, z), bark, Vector3(0, 0, 90), 9)
+	for z in [-0.18, 0.0, 0.18]:
+		Util.cyl(s, 0.12, 0.12, 1.0, Vector3(0, 0.35, z), bark, Vector3(0, 0, 90), 9)
 	var pv := Node3D.new()
-	pv.position = Vector3(0, 0.62, 0.42)
+	pv.position = Vector3(0, 0.47, 0.32)
 	s.add_child(pv)
-	for z in [-0.54, -0.3]:
-		Util.cyl(pv, 0.15, 0.15, 1.3, Vector3(0, 0.11, z), bark, Vector3(0, 0, 90), 9)
-	Util.shape_box(s, Vector3(1.5, 0.9, 1.0), Vector3(0, 0.45, 0))
+	for z in [-0.41, -0.23]:
+		Util.cyl(pv, 0.11, 0.11, 0.98, Vector3(0, 0.08, z), bark, Vector3(0, 0, 90), 9)
+	Util.shape_box(s, Vector3(1.15, 0.7, 0.75), Vector3(0, 0.35, 0))
 	s.anim_pivots = [pv]
 	s.anim_rots = [Vector3(100, 0, 0)]
-	s.item_anchor = Vector3(0, 0.6, 0)
-	s.ring_radius = 1.1
+	s.item_anchor = Vector3(0, 0.5, 0)
+	s.ring_radius = 0.9
 
 
 static func _campfire(s: Interactable) -> void:

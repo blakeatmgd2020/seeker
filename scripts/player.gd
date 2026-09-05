@@ -44,6 +44,7 @@ var sitting := false
 var autorun := false
 var _stamina_locked := false
 var _well_deep := false
+var _well_cool_ms := 0
 var _lock_until_ms := 0
 var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
@@ -160,8 +161,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("autorun"):
 		autorun = not autorun
-		if hud:
-			hud.toast("Autorun on." if autorun else "Autorun off.")
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseButton:
@@ -201,6 +200,8 @@ func _mouse_button(e: InputEventMouseButton, is_left: bool) -> void:
 				_dragging = false
 				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 				get_viewport().warp_mouse(_saved_cursor)
+				if hud:
+					hud.set_view_drag(false)
 			else:
 				_click(is_left, e.position)
 
@@ -213,6 +214,8 @@ func _mouse_motion(e: InputEventMouseMotion) -> void:
 		if _press_accum > DRAG_THRESHOLD:
 			_dragging = true
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			if hud:
+				hud.set_view_drag(true)
 	if _dragging:
 		# Sensitivity scales with FOV so the spyglass aims steadily. The
 		# normal camera is vertically inverted (preference); through the
@@ -325,6 +328,8 @@ func release_drag() -> void:
 	if _dragging:
 		_dragging = false
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if hud:
+			hud.set_view_drag(false)
 
 
 func set_target(s: Interactable) -> void:
@@ -359,9 +364,11 @@ func _physics_process(delta: float) -> void:
 		iv.x = 0.0
 		if not (_lmb and _rmb) or sitting:
 			iv.y = 0.0
-	# Autorun (` toggles): keep walking forward; backpedal input cancels it.
+	# Autorun (` toggles): keep walking forward; any deliberate movement
+	# input — backpedal, W, or both-buttons run — cancels it.
 	if autorun and not sitting:
-		if iv.y > 0.1:
+		if iv.y > 0.1 or (_lmb and _rmb) \
+				or (Input.is_action_pressed("move_forward") and not noting):
 			autorun = false
 		else:
 			iv.y = -1.0
@@ -393,7 +400,8 @@ func _physics_process(delta: float) -> void:
 	var wellc := _near_well()
 	if wellc.is_empty():
 		_well_deep = false
-	elif main.tools.rope and not climbing:
+	elif main.tools.rope and not climbing \
+			and Time.get_ticks_msec() >= _well_cool_ms:
 		var wdxz := Vector2(wellc.axis.x - global_position.x, wellc.axis.z - global_position.z)
 		if wdxz.length() < 0.75:
 			climbing = true
@@ -404,14 +412,17 @@ func _physics_process(delta: float) -> void:
 				_well_deep = true
 			if iv.y < -0.1 and _well_deep:
 				if global_position.y >= wellc.rim_y - 0.15:
+					# Crest out — and go deaf to the well for a moment so
+					# the entry logic can't snatch us straight back in.
 					var outd := Basis(Vector3.UP, facing) * Vector3(0, 0, -1)
-					velocity = Vector3(outd.x, 0, outd.z).normalized() * 2.6 + Vector3(0, 1.7, 0)
+					velocity = Vector3(outd.x, 0, outd.z).normalized() * 3.0 + Vector3(0, 2.2, 0)
 					_well_deep = false
+					_well_cool_ms = Time.get_ticks_msec() + 900
 				else:
 					velocity = Vector3(0, CLIMB_SPEED, 0)
 			elif is_on_floor():
 				climbing = false
-		elif iv.y < -0.1 and wdxz.length() < 1.9 \
+		elif iv.y < -0.1 and not _well_deep and wdxz.length() < 1.9 \
 				and global_position.y < wellc.rim_y + 0.5:
 			climbing = true
 			if global_position.y >= wellc.rim_y - 0.15:
@@ -468,9 +479,9 @@ func _physics_process(delta: float) -> void:
 			dir = dir.normalized()
 		var sp := WALK_SPEED
 		if sprinting:
-			# Parabolic sprint: fresh legs are fastest; the bonus over walk
-			# speed decays to half as stamina drains.
-			var sf := 1.0 if caffeinated else 0.5 + 0.5 * stamina * stamina
+			# Parabolic sprint all the way down: fresh legs are fastest and
+			# an empty bar is plain walking speed.
+			var sf := 1.0 if caffeinated else stamina * stamina
 			sp = WALK_SPEED + (SPRINT_SPEED - WALK_SPEED) * sf
 		if iv.y > 0.0:
 			sp *= BACKPEDAL_FACTOR
