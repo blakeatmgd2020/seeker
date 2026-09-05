@@ -107,6 +107,20 @@ func _process(_delta: float) -> bool:
 		fails.append("expected 20-32 structures, got %d" % main.structures.size())
 	if main.world.get_node_or_null("Village") == null:
 		fails.append("village root missing")
+	# No stacked buildings, and every village well drops into a cavern.
+	var bcenters: Array[Vector3] = []
+	for ch in main.world.get_node("Village").get_children():
+		if String(ch.name).contains("House") or String(ch.name).contains("Barn"):
+			bcenters.append(ch.global_position)
+	for i in bcenters.size():
+		for j in range(i + 1, bcenters.size()):
+			var bd := Vector2(bcenters[i].x - bcenters[j].x,
+				bcenters[i].z - bcenters[j].z).length()
+			if bd < 8.0:
+				fails.append("buildings overlap (%.1f m apart)" % bd)
+	if main.well_drops.size() != main._cur_vils.size():
+		fails.append("expected %d cavern wells (one per village), got %d" % [
+			main._cur_vils.size(), main.well_drops.size()])
 	# Underground nodes (cellar/cave/well) must actually be below the terrain.
 	for s in main.structures:
 		if s.display_name in ["cellar crate", "cave chest", "stashed crate", "buried urn", "well cache"]:

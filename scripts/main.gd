@@ -46,10 +46,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r8 · 2026-09-05 10:30"
+const VERSION := "r9 · 2026-09-05 11:45"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r9 · 2026-09-05 11:45 — EVERY well is enterable with the rope (no more sealed black-top wells). Houses have real window openings with transparent glass (upstairs too), and some hang a lit lantern by the door. Interior and lantern lights cast shadows — no more glow bleeding through walls. Underground darkness is near-total without a light source. Flashlight now shines from in front of the seeker (no self-shadow). Buildings can no longer overlap. Cairns topple instead of deflating. Enter also opens the Dev Note.",
 	"r8 · 2026-09-05 10:30 — DAY AND NIGHT: a 15-minute cycle (10 day, 5 night) with a real sun and moon, drifting clouds, stars, dawns and dusks; each seed starts at its own hour, and the daily mood survives as a color grade. Nights are dark but moonlit — overcast nights are properly black. Caves, cellars, and well caverns go genuinely dark. New findable: the FLASHLIGHT (F), never hidden underground. Also: fez with a physics tassel, backpack, chimneys with fireplaces on some houses, recap path traced by a moving dot, snappier sitting recovery, easier well entry (S works too).",
 	"r7 · 2026-09-04 18:40 — Wells fixed: open rims you can see down, plank covers until you own the rope (no more ropeless traps), and climbing out actually works. Cellars deeper with taller vaults; no bottom-step flicker. Cave exits walkable (no jump needed); caves can be tucked into the barrier ridges. Sprint decays to plain walking speed. W or mouse-run cancels autorun. Smooth mouse steering with the map open. Tighter top-right HUD. Esc menu: End current map reveals the recap. Recap report centered above a smaller map. Hollow stumps look hollow; firewood is smaller and often near fire pits.",
 	"r6 · 2026-09-04 17:30 — Conditional items: irons/rope are only hidden when the world actually has nests / a cavern well (6-8 items per world; ~1 in 4 maps has no nests). Grey unfound-item roster removed; found items show as circular icons under the minimap. Movement speed readout (walk = 100%). Real sitting pose; leaving crouch or sit always stands you up. Square coffee button with icon. Wild nodes favor shorelines. Tree canopies now block the spyglass. Compact win banner. This version history.",
@@ -106,12 +107,12 @@ void sky() {
 	} else {
 		col = mix(col_top, col_horizon, pow(1.0 - d.y, 2.0));
 		if (star_amt > 0.01) {
-			vec2 spp = d.xz / (d.y + 0.3) * 60.0;
-			float st = step(0.9975, hash21(floor(spp)));
-			col += vec3(st * star_amt * smoothstep(0.05, 0.3, d.y));
+			vec2 spp = d.xz / (d.y + 0.3) * 140.0;
+			float st = step(0.9985, hash21(floor(spp)));
+			col += vec3(st * star_amt * 0.8 * smoothstep(0.05, 0.3, d.y));
 		}
 		float sd = dot(d, sun_dir);
-		col += sun_col * (smoothstep(0.9995, 0.9999, sd) * 4.0
+		col += sun_col * (smoothstep(0.999, 0.9996, sd) * 3.2
 			+ pow(max(sd, 0.0), 64.0) * 0.22);
 		float md = dot(d, moon_dir);
 		col += vec3(0.88, 0.92, 1.0) * moon_bright
@@ -177,6 +178,8 @@ var spot_idx := 0
 var debug_biome := ""
 
 var day_phase := 0.25  ## 0 = sunrise, 2/3 = sunset, 1 wraps to sunrise
+var _last_sun_dir := Vector3.UP
+var _last_moon_dir := Vector3.DOWN
 var _env: Environment
 var _sky_mat: ShaderMaterial
 var _sun: DirectionalLight3D
@@ -792,24 +795,28 @@ func _update_daylight(delta: float) -> void:
 		_sun.basis = Basis.looking_at(-sun_dir, up)
 		_sun.light_color = k[3] * tint
 		_sun.light_energy = sun_e * _wx_sun_mult
-	_moon.visible = moon_up > 0.05 and _wx_moon > 0.3
-	if _moon.visible:
-		var up2 := Vector3.UP if absf(moon_dir.y) < 0.98 else Vector3(0, 0, 1)
-		_moon.basis = Basis.looking_at(-moon_dir, up2)
-		_moon.light_energy = 0.22 * moon_up * _wx_moon
-
-	# Underground, ambient dies away — caves are dark; lanterns matter.
+	# Underground, ambient dies to nothing — an unlit cave or well shaft
+	# is near-impossible to see in; lanterns, crystals, and the flashlight
+	# are all you get. (The moon casts no shadows, so it must be faded out
+	# by depth too or it would shine through the rock.)
 	var uf := 0.0
 	if player and terrain:
 		var depth := terrain.height_at(player.global_position.x, player.global_position.z) \
 			- player.global_position.y
 		uf = clampf((depth - 1.2) / 2.0, 0.0, 1.0)
+
+	_moon.visible = moon_up > 0.05 and _wx_moon > 0.3 and uf < 0.95
+	if _moon.visible:
+		var up2 := Vector3.UP if absf(moon_dir.y) < 0.98 else Vector3(0, 0, 1)
+		_moon.basis = Basis.looking_at(-moon_dir, up2)
+		_moon.light_energy = 0.22 * moon_up * _wx_moon * (1.0 - uf)
+
 	var night_cloud_dim := 1.0
 	if day_phase >= DAY_FRAC and _wx_moon < 0.3:
 		night_cloud_dim = 0.55  # overcast, moonless nights are properly dark
 	_env.ambient_light_color = (k[2] * 0.55 + k[1] * 0.45) * tint
 	_env.ambient_light_energy = k[5] * _amb_mult * night_cloud_dim \
-		* lerpf(1.0, 0.07, uf) + 0.02
+		* lerpf(1.0, 0.004, uf)
 	_env.fog_light_color = k[2] * tint * 0.8
 	_env.fog_density = _fog_base + _wx_fog_add \
 		+ (0.0004 if day_phase >= DAY_FRAC else 0.0)
@@ -817,6 +824,8 @@ func _update_daylight(delta: float) -> void:
 	var night_amt := 0.0
 	if day_phase >= DAY_FRAC:
 		night_amt = clampf(sin((day_phase - DAY_FRAC) / (1.0 - DAY_FRAC) * PI) * 2.0, 0.0, 1.0)
+	_last_sun_dir = sun_dir
+	_last_moon_dir = moon_dir
 	_sky_mat.set_shader_parameter("sun_dir", sun_dir)
 	_sky_mat.set_shader_parameter("moon_dir", moon_dir)
 	_sky_mat.set_shader_parameter("col_top", k[1] * tint)
@@ -1112,8 +1121,9 @@ func _setup_input() -> void:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = b[1]
 		InputMap.action_add_event(b[0], ev)
-	# Up/Down arrows double as walk keys alongside W/S.
-	for ex in [["move_forward", KEY_UP], ["move_back", KEY_DOWN]]:
+	# Up/Down arrows double as walk keys; Enter also opens the Dev Note.
+	for ex in [["move_forward", KEY_UP], ["move_back", KEY_DOWN],
+			["feedback", KEY_ENTER]]:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = ex[1]
 		InputMap.action_add_event(ex[0], ev)
@@ -1138,6 +1148,9 @@ func _setup_environment() -> void:
 	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	_env.ssao_enabled = true
 	_env.fog_enabled = true
+	# Fog must NOT swallow the skybox, or the sun, moon, clouds, and stars
+	# all wash out to one flat color.
+	_env.fog_sky_affect = 0.1
 	we.environment = _env
 	add_child(we)
 
@@ -1251,6 +1264,21 @@ func _shot_routine() -> void:
 	await get_tree().create_timer(0.5).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_night.png"))
 	player.flashlight.visible = false
+	# Aim straight at the sun, then the moon, to verify the discs render
+	# (body hidden so it doesn't eclipse them at screen center).
+	day_phase = 0.3
+	_update_daylight(0.0)
+	player.set_facing(atan2(-_last_sun_dir.x, -_last_sun_dir.z) + 0.26)
+	player.pitch_node.rotation_degrees.x = rad_to_deg(asin(_last_sun_dir.y))
+	await get_tree().create_timer(0.4).timeout
+	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_sun.png"))
+	day_phase = 0.82
+	_update_daylight(0.0)
+	player.set_facing(atan2(-_last_moon_dir.x, -_last_moon_dir.z) + 0.26)
+	player.pitch_node.rotation_degrees.x = rad_to_deg(asin(_last_moon_dir.y))
+	await get_tree().create_timer(0.4).timeout
+	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_moon.png"))
+	player.pitch_node.rotation_degrees.x = -14.0
 	day_phase = 0.3
 	_update_daylight(0.0)
 	tools.compass = true

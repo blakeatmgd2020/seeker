@@ -14,13 +14,11 @@ static func layout(terrain: Terrain, wrng: RandomNumberGenerator, biome: Diction
 	var wells: Array = []
 	for vd in vils:
 		var placed: Array[Vector2] = []
-		# Village wells: some hide a cavern below (rope territory), and a
-		# cavern may or may not hold a cache.
-		var cavern := wrng.randf() < 0.5
-		wells.append({c = vd.c, cavern = cavern,
-			cache = cavern and wrng.randf() < 0.6})
+		# Every village well drops into a cavern (with the rope, ALL wells
+		# are enterable); the cavern may or may not hold a cache.
+		wells.append({c = vd.c, cavern = true, cache = wrng.randf() < 0.6})
 		for bi in vd.n:
-			var p := _spot(wrng, vd.c, placed, 6.0, maxf(vd.rf - 3.0, 8.0), 11.0)
+			var p := _spot(wrng, vd.c, placed, 6.0, maxf(vd.rf - 3.0, 8.0), 13.5)
 			var kind := "barn" if wrng.randf() < 0.25 else "house"
 			var variant := "single"
 			if kind == "house":
@@ -33,7 +31,8 @@ static func layout(terrain: Terrain, wrng: RandomNumberGenerator, biome: Diction
 					variant = "roofdeck"
 			buildings.append({kind = kind, pos = p, yaw = wrng.randf_range(0.0, 360.0),
 				node = false, basement = false, variant = variant, cellar_node = false,
-				chimney = kind == "house" and wrng.randf() < 0.45})
+				chimney = kind == "house" and wrng.randf() < 0.45,
+				lamp = kind == "house" and wrng.randf() < 0.6})
 		var lpts: Array[Vector2] = []
 		for i in wrng.randi_range(0, 2):
 			if loose.size() >= 6:
@@ -69,14 +68,6 @@ static func layout(terrain: Terrain, wrng: RandomNumberGenerator, biome: Diction
 			b.basement = true
 			b.cellar_node = wrng.randf() < 0.65
 			cellars += 1
-	# Guarantee at least one cavern well when any village exists.
-	if not wells.is_empty():
-		var any_cav := false
-		for wd in wells:
-			any_cav = any_cav or wd.cavern
-		if not any_cav:
-			wells[0].cavern = true
-			wells[0].cache = wrng.randf() < 0.6
 	return {buildings = buildings, wells = wells, loose = loose}
 
 
@@ -95,7 +86,8 @@ static func construct(parent: Node3D, terrain: Terrain, lay: Dictionary,
 		var res: Dictionary
 		if b.kind == "house":
 			res = _house(root, terrain, b.pos, b.yaw, style,
-				b.get("variant", "single"), b.basement, b.get("chimney", false))
+				b.get("variant", "single"), b.basement, b.get("chimney", false),
+				b.get("lamp", false))
 			if b.node:
 				specs.append({kind = "wardrobe", display = "wardrobe", xform = res.ward})
 			excl.append(Vector3(b.pos.x, b.pos.y, 9.0))
@@ -125,20 +117,34 @@ static func construct(parent: Node3D, terrain: Terrain, lay: Dictionary,
 
 static func _spot(wrng: RandomNumberGenerator, vc: Vector2, placed: Array[Vector2],
 		rmin: float, rmax: float, gap: float) -> Vector2:
-	for i in 80:
+	for i in 100:
+		# Later attempts widen the ring and relax the gap a little.
+		var relax := 1.0 if i < 60 else 0.88
+		var extra := 0.0 if i < 60 else 5.0
 		var a := wrng.randf_range(0.0, TAU)
-		var p := vc + Vector2(cos(a), sin(a)) * wrng.randf_range(rmin, rmax)
+		var p := vc + Vector2(cos(a), sin(a)) * wrng.randf_range(rmin, rmax + extra)
 		var ok := true
 		for q in placed:
-			if (p - q).length() < gap:
+			if (p - q).length() < gap * relax:
 				ok = false
 				break
 		if ok:
 			placed.append(p)
 			return p
-	var f := vc + Vector2(wrng.randf_range(-24.0, 24.0), wrng.randf_range(-24.0, 24.0))
-	placed.append(f)
-	return f
+	# Last resort: whichever candidate is farthest from every neighbor —
+	# never a blind drop on top of another building.
+	var best := vc + Vector2(26.0, 0.0)
+	var bestd := -1.0
+	for i in 16:
+		var p := vc + Vector2(wrng.randf_range(-28.0, 28.0), wrng.randf_range(-28.0, 28.0))
+		var dmin := 1e9
+		for q in placed:
+			dmin = minf(dmin, (p - q).length())
+		if dmin > bestd:
+			bestd = dmin
+			best = p
+	placed.append(best)
+	return best
 
 
 static func _loose_spot(wrng: RandomNumberGenerator, vc: Vector2,
@@ -185,7 +191,8 @@ const FOUND_TOP := 0.45
 ## Shared shell: foundation with entry steps, floor, walls with a door gap.
 static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		w: float, d: float, h: float, door_w: float, door_h: float,
-		wall: Material, _foundation_h: float, stair_hole := 0.0) -> StaticBody3D:
+		wall: Material, _foundation_h: float, stair_hole := 0.0,
+		win_rows: Array = []) -> StaticBody3D:
 	var b := StaticBody3D.new()
 	b.collision_layer = 1
 	root.add_child(b)
@@ -206,8 +213,13 @@ static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		Util.box(b, Vector3(w + 0.5, 0.9, d + 0.5), Vector3(0, 0.0, 0), TexF.mat("stone"))
 		Util.box(b, Vector3(w - 0.4, 0.05, d - 0.4), Vector3(0, 0.475, 0), TexF.mat("floor"))
 	Util.box(b, Vector3(w, h, t), Vector3(0, F + h * 0.5, -d * 0.5 + t * 0.5), wall)
-	Util.box(b, Vector3(t, h, d), Vector3(-w * 0.5 + t * 0.5, F + h * 0.5, 0), wall)
-	Util.box(b, Vector3(t, h, d), Vector3(w * 0.5 - t * 0.5, F + h * 0.5, 0), wall)
+	if win_rows.is_empty():
+		Util.box(b, Vector3(t, h, d), Vector3(-w * 0.5 + t * 0.5, F + h * 0.5, 0), wall)
+		Util.box(b, Vector3(t, h, d), Vector3(w * 0.5 - t * 0.5, F + h * 0.5, 0), wall)
+	else:
+		# Side walls with REAL window openings and transparent glass.
+		for sxs in [-1.0, 1.0]:
+			_window_wall(b, sxs * (w * 0.5 - t * 0.5), t, d, h, F, wall, win_rows)
 	var seg := (w - door_w) * 0.5
 	var fz := d * 0.5 - t * 0.5
 	Util.box(b, Vector3(seg, h, t), Vector3(-(door_w * 0.5 + seg * 0.5), F + h * 0.5, fz), wall)
@@ -226,15 +238,18 @@ static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 
 static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		style: String, variant := "single", basement := false,
-		chimney := false) -> Dictionary:
+		chimney := false, lamp := false) -> Dictionary:
 	var m := _style_mats(style)
 	var w := 11.0 if variant == "tworoom" else 8.0
 	var d := 6.0
 	var h := 5.45 if variant == "twostory" else 3.0
 	var t := 0.25
 	var flat_roof: bool = style == "adobe" or variant == "roofdeck"
+	var win_rows := [[1.15, 0.6 if style == "adobe" else 0.9]]
+	if variant == "twostory":
+		win_rows.append([4.4, 0.9])
 	var b := _shell(root, terrain, pos, yaw, w, d, h, 1.6, 2.3, m.wall, 0.9,
-		2.6 if basement else 0.0)
+		2.6 if basement else 0.0, win_rows)
 	b.name = "House"
 	var F := FOUND_TOP
 	var fz := d * 0.5 - t * 0.5
@@ -243,10 +258,6 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	Util.box(b, Vector3(0.16, 2.3, t + 0.08), Vector3(-0.85, F + 1.15, fz), wood, false)
 	Util.box(b, Vector3(0.16, 2.3, t + 0.08), Vector3(0.85, F + 1.15, fz), wood, false)
 	Util.box(b, Vector3(1.9, 0.2, t + 0.08), Vector3(0, F + 2.38, fz), wood, false)
-	var win_h := 0.6 if style == "adobe" else 0.9
-	for wz in [-1.4, 1.4]:
-		Util.box(b, Vector3(0.08, win_h, 1.0), Vector3(-w * 0.5 - 0.02, F + 1.7, wz), TexF.mat("window"), false)
-		Util.box(b, Vector3(0.08, win_h, 1.0), Vector3(w * 0.5 + 0.02, F + 1.7, wz), TexF.mat("window"), false)
 
 	var res := {}
 	if flat_roof:
@@ -310,16 +321,12 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 					wood, false)
 			Util.shape_box(b, Vector3(1.1, 0.15, 5.95), Vector3(-3.15, 1.975, -0.1),
 				Vector3(31.8, 0, 0))
-			for wz in [-1.4, 1.4]:
-				Util.box(b, Vector3(0.08, 0.9, 1.0), Vector3(-w * 0.5 - 0.02, F + 4.3, wz),
-					TexF.mat("window"), false)
-				Util.box(b, Vector3(0.08, 0.9, 1.0), Vector3(w * 0.5 + 0.02, F + 4.3, wz),
-					TexF.mat("window"), false)
 			var ul := OmniLight3D.new()
 			ul.position = Vector3(0, 5.2, 0)
 			ul.light_color = Color(1.0, 0.85, 0.6)
 			ul.omni_range = 7.0
 			ul.light_energy = 1.2
+			ul.shadow_enabled = true
 			b.add_child(ul)
 			ward_local = Vector3(2.4, 3.6, -2.2)
 		"roofdeck":
@@ -342,7 +349,30 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	wl.light_color = Color(1.0, 0.85, 0.6)
 	wl.omni_range = 7.0
 	wl.light_energy = 1.4
+	wl.shadow_enabled = true
 	b.add_child(wl)
+	if lamp:
+		# An exterior lantern mounted beside the door — villages glow at
+		# night.
+		var lametal := TexF.mat("metal")
+		Util.box(b, Vector3(0.3, 0.06, 0.06), Vector3(1.15, F + 2.42, fz + 0.18), lametal, false)
+		Util.box(b, Vector3(0.17, 0.26, 0.17), Vector3(1.15, F + 2.22, fz + 0.3), lametal, false)
+		var pane := StandardMaterial3D.new()
+		pane.albedo_color = Color(1.0, 0.85, 0.45)
+		pane.emission_enabled = true
+		pane.emission = Color(1.0, 0.78, 0.35)
+		pane.emission_energy_multiplier = 1.6
+		var pm2 := BoxMesh.new()
+		pm2.size = Vector3(0.11, 0.16, 0.11)
+		pm2.material = pane
+		Util.mesh(b, pm2, Vector3(1.15, F + 2.21, fz + 0.3))
+		var ll := OmniLight3D.new()
+		ll.position = Vector3(1.15, F + 2.2, fz + 0.45)
+		ll.light_color = Color(1.0, 0.8, 0.45)
+		ll.omni_range = 5.5
+		ll.light_energy = 1.2
+		ll.shadow_enabled = true
+		b.add_child(ll)
 	if chimney:
 		# A lived-in house: stone stack with curling smoke, and a matching
 		# fireplace inside. Alpine houses use their built-in roof chimney;
@@ -376,6 +406,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		fl.light_color = Color(1.0, 0.6, 0.3)
 		fl.omni_range = 5.5
 		fl.light_energy = 1.1
+		fl.shadow_enabled = true
 		b.add_child(fl)
 	if basement:
 		res.cellar = b.transform * Transform3D(
@@ -417,6 +448,52 @@ static func _smoke(b: Node3D, pos: Vector3) -> void:
 	smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	smoke.position = pos
 	b.add_child(smoke)
+
+
+static var _glass_mat: StandardMaterial3D
+
+
+static func _glass() -> StandardMaterial3D:
+	if _glass_mat == null:
+		_glass_mat = StandardMaterial3D.new()
+		_glass_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_glass_mat.albedo_color = Color(0.6, 0.75, 0.85, 0.28)
+		_glass_mat.roughness = 0.08
+		_glass_mat.metallic = 0.4
+	return _glass_mat
+
+
+## One side wall built from bands and piers around real window openings
+## (rows of [sill_height, window_height], windows at z ±1.4), each glazed
+## with a transparent pane. Openings are too small to climb through.
+static func _window_wall(b: Node3D, x: float, t: float, d: float, h: float,
+		F: float, wall: Material, rows: Array) -> void:
+	var win_zs := [-1.4, 1.4]
+	var y0 := 0.0
+	for r in rows:
+		var sill: float = r[0]
+		var wh: float = r[1]
+		if sill - y0 > 0.05:
+			Util.box(b, Vector3(t, sill - y0, d),
+				Vector3(x, F + (y0 + sill) * 0.5, 0), wall)
+		# piers between and beside the openings
+		var edges: Array = [-d * 0.5]
+		for wz in win_zs:
+			edges.append(wz - 0.5)
+			edges.append(wz + 0.5)
+		edges.append(d * 0.5)
+		for i in range(0, edges.size(), 2):
+			var z0: float = edges[i]
+			var z1: float = edges[i + 1]
+			if z1 - z0 > 0.05:
+				Util.box(b, Vector3(t, wh, z1 - z0),
+					Vector3(x, F + sill + wh * 0.5, (z0 + z1) * 0.5), wall)
+		for wz in win_zs:
+			Util.box(b, Vector3(0.06, wh, 1.0),
+				Vector3(x, F + sill + wh * 0.5, wz), _glass(), false)
+		y0 = sill + wh
+	if h - y0 > 0.05:
+		Util.box(b, Vector3(t, h - y0, d), Vector3(x, F + (y0 + h) * 0.5, 0), wall)
 
 
 ## Cuts a horizontal slab into four boxes around a rectangular hole.
@@ -473,6 +550,7 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	wl.light_color = Color(1.0, 0.88, 0.65)
 	wl.omni_range = 9.0
 	wl.light_energy = 1.3
+	wl.shadow_enabled = true
 	b.add_child(wl)
 
 	var res := {chest = b.transform * Transform3D(

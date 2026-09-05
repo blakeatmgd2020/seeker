@@ -91,16 +91,18 @@ func _init() -> void:
 	cam.far = 900.0
 	cam.fov = 72.0
 	arm.add_child(cam)
-	# Flashlight beam rides the camera so it points where you look.
+	# Flashlight beam: held out IN FRONT of the seeker (a camera-mounted
+	# light put the body between light and world, casting its own shadow
+	# forward). It still pitches with the view.
 	flashlight = SpotLight3D.new()
 	flashlight.spot_range = 34.0
 	flashlight.spot_angle = 26.0
 	flashlight.light_energy = 3.0
 	flashlight.light_color = Color(1.0, 0.96, 0.85)
 	flashlight.shadow_enabled = true
-	flashlight.position = Vector3(0.25, -0.15, 0)
+	flashlight.position = Vector3(0.3, 0.0, -0.75)
 	flashlight.visible = false
-	cam.add_child(flashlight)
+	pitch_node.add_child(flashlight)
 
 
 func _ready() -> void:

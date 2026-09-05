@@ -86,6 +86,18 @@ func _animate_open() -> void:
 				t.tween_property(sink_node, "scale", sink_scale, 0.9)
 			for c in sink_shapes:
 				c.set_deferred("disabled", true)
+		"topple":
+			# Stones spill sideways instead of deflating.
+			if sink_node:
+				var t := _tw()
+				t.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+				t.tween_property(sink_node, "rotation_degrees", Vector3(0, 0, -98), 0.55)
+				var t2 := _tw()
+				t2.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+				t2.tween_property(sink_node, "position",
+					sink_node.position + Vector3(0.5, -0.12, 0.15), 0.55)
+			for c in sink_shapes:
+				c.set_deferred("disabled", true)
 		"shake":
 			var y := position.y
 			var t := _tw()

@@ -297,10 +297,8 @@ static func _cairn(s: Interactable) -> void:
 		Util.mesh(upper, rock, Vector3(0, uy + r * 0.4, 0))
 		uy += r * 0.62
 	Util.shape_cyl(s, 0.58, 1.5, Vector3(0, 0.75, 0))
-	s.anim_style = "sink"
+	s.anim_style = "topple"
 	s.sink_node = upper
-	s.sink_orig = Vector3.ONE
-	s.sink_scale = Vector3(1.6, 0.08, 1.6)
 	s.item_anchor = Vector3(0, 0.9, 0)
 	s.ring_radius = 0.85
 
