@@ -1098,6 +1098,11 @@ func _shot_routine() -> void:
 	await get_tree().create_timer(0.4).timeout
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_feedback.png"))
 	feedback.close_form()
+	end_current_map()
+	await get_tree().create_timer(0.5).timeout
+	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_recap.png"))
+	hud.close_big_views()
+	hud.hide_banner()
 	# Find a world with a cave and photograph the chamber.
 	for sv in [11, 22, 33, 44, 55, 66, 77, 88]:
 		start_random(sv)
@@ -1160,7 +1165,17 @@ func _shot_routine() -> void:
 		if well_drops.is_empty():
 			continue
 		var dr: Dictionary = well_drops[0]
+		# First the sealed mouth from above, then the cavern with the rope.
+		var wxcam := Camera3D.new()
+		add_child(wxcam)
+		wxcam.global_position = dr.axis + Vector3(3.5, 4.0, 3.5)
+		wxcam.look_at(dr.axis + Vector3(0, 0.9, 0))
+		wxcam.current = true
+		await get_tree().create_timer(0.7).timeout
+		get_viewport().get_texture().get_image().save_png(dir.path_join("shot_well_ext.png"))
 		dr.rope.visible = true
+		dr.cover.visible = false
+		dr.cover_shape.set_deferred("disabled", true)
 		player.global_position = dr.axis + Vector3(0.0, -6.3, -1.6)
 		player.velocity = Vector3.ZERO
 		var wcam := Camera3D.new()

@@ -925,7 +925,12 @@ func set_stamina(v: float, locked: bool, lock_left := 0.0) -> void:
 ## a map ended early from the menu.
 func show_recap(found: int, total: int, time_str: String, ended := false) -> void:
 	banner.visible = true
-	banner.position = Vector2(-330, 22)
+	# Explicit anchor offsets: runtime .position writes on an anchored
+	# control land in parent coordinates and shoved the banner off-screen.
+	banner.offset_left = -330
+	banner.offset_right = 330
+	banner.offset_top = 22
+	banner.offset_bottom = 22
 	banner_label.add_theme_font_size_override("font_size", 20)
 	if ended:
 		banner_label.text = "MAP ENDED — %d of %d found in %s.\nHere is everything, and everywhere you went. M closes." % [

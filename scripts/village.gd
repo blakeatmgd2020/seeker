@@ -490,8 +490,12 @@ static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String,
 		Util.box(b, Vector3(0.35, 4.3, 2.5), Vector3(1.07, -2.0, 0), stone)
 		Util.box(b, Vector3(2.5, 4.3, 0.35), Vector3(0, -2.0, -1.07), stone)
 		Util.box(b, Vector3(2.5, 4.3, 0.35), Vector3(0, -2.0, 1.07), stone)
-		# Collar slab: covers everything the terrain hole can remove.
-		_hole_slab(b, -4.4, 4.4, -4.4, 4.4, -1.1, 1.1, -1.1, 1.1, -0.25, 0.6, stone)
+		# Collar slab: covers everything the terrain hole can remove. Its
+		# top sits just below the terrain surface and wears packed earth,
+		# so the exposed patch blends into the plaza instead of reading as
+		# a giant stone pad.
+		_hole_slab(b, -4.4, 4.4, -4.4, 4.4, -1.1, 1.1, -1.1, 1.1, -0.35, 0.6,
+			TexF.mat("dirt_mound"))
 		# Cavern: interior x/z ±3.0, floor -6.35, ceiling -4.35.
 		Util.box(b, Vector3(6.6, 0.3, 6.6), Vector3(0, -6.5, 0), stone)
 		_hole_slab(b, -3.3, 3.3, -3.3, 3.3, -0.95, 0.95, -0.95, 0.95, -4.125, 0.35, stone)
