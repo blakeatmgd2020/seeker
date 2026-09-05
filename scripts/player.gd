@@ -48,6 +48,8 @@ var _lock_until_ms := 0
 var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
 var _cshape: CollisionShape3D
+var _leg_l: MeshInstance3D
+var _leg_r: MeshInstance3D
 var _lmb := false
 var _rmb := false
 var _dragging := false
@@ -122,8 +124,8 @@ func _build_visual() -> void:
 	var leg := BoxMesh.new()
 	leg.size = Vector3(0.15, 0.62, 0.18)
 	leg.material = pants
-	Util.mesh(body_vis, leg, Vector3(-0.11, 0.31, 0))
-	Util.mesh(body_vis, leg, Vector3(0.11, 0.31, 0))
+	_leg_l = Util.mesh(body_vis, leg, Vector3(-0.11, 0.31, 0))
+	_leg_r = Util.mesh(body_vis, leg, Vector3(0.11, 0.31, 0))
 	var eye := SphereMesh.new()
 	eye.radius = 0.028
 	eye.height = 0.056
@@ -271,10 +273,14 @@ func set_crouch(on: bool) -> void:
 
 
 ## Sit (C): fully immobile, but resting speeds stamina recovery — and a
-## Winded lockout counts down markedly faster.
+## Winded lockout counts down markedly faster. Toggling out of sitting
+## (or crouching) always returns to STANDING, never the prior state.
 func toggle_sit() -> void:
-	sitting = not sitting
 	if sitting:
+		sitting = false
+	else:
+		set_crouch(false)
+		sitting = true
 		autorun = false
 		if hud:
 			hud.toast("Sitting — resting speeds recovery. C to stand.")
@@ -282,14 +288,26 @@ func toggle_sit() -> void:
 
 
 func _apply_pose() -> void:
+	body_vis.scale.y = 1.0
+	body_vis.position.y = 0.0
+	for lg in [_leg_l, _leg_r]:
+		if lg:
+			lg.rotation_degrees.x = 0.0
+			lg.position.y = 0.31
+			lg.position.z = 0.0
 	if sitting:
-		body_vis.scale.y = 0.5
+		# Settled on the ground, legs stretched out front.
+		body_vis.position.y = -0.52
+		for lg in [_leg_l, _leg_r]:
+			if lg:
+				lg.rotation_degrees.x = -85.0
+				lg.position.y = 0.12
+				lg.position.z = 0.24
 		yaw_node.position.y = 0.95
 	elif crouched:
 		body_vis.scale.y = 0.62
 		yaw_node.position.y = 1.0
 	else:
-		body_vis.scale.y = 1.0
 		yaw_node.position.y = 1.55
 
 
@@ -474,6 +492,8 @@ func _physics_process(delta: float) -> void:
 	_last_walk_pos = wp
 	if main:
 		main.record_path(wp)
+	if hud:
+		hud.set_speed(Vector2(velocity.x, velocity.z).length() / WALK_SPEED * 100.0)
 
 	if not climbing:
 		body_vis.rotation.y = lerp_angle(body_vis.rotation.y, facing + PI, minf(1.0, 14.0 * delta))
@@ -580,8 +600,10 @@ func _update_discovery(spy: bool) -> void:
 				continue
 			var ex := ray_excl.duplicate()
 			ex.append(s.get_rid())
+			# Mask 1|4: solid world plus canopy occluders — foliage blocks
+			# the line of sight.
 			var q := PhysicsRayQueryParameters3D.create(
-				cam.global_position, p3, 1, ex)
+				cam.global_position, p3, 5, ex)
 			if space.intersect_ray(q):
 				continue
 			s.seen = true

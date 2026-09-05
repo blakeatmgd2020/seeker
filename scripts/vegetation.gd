@@ -21,26 +21,33 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 	cols.name = "TreeColliders"
 	cols.collision_layer = 1
 	root.add_child(cols)
+	# Canopies block SIGHT rays only (layer 4): the spyglass can't spot a
+	# node through foliage, but nothing bumps into leaves.
+	var canopies := StaticBody3D.new()
+	canopies.name = "CanopyOccluders"
+	canopies.collision_layer = 4
+	canopies.collision_mask = 0
+	root.add_child(canopies)
 
 	var v: Dictionary = biome.veg
-	# Trees: [mesh, count, trunk radius]
+	# Trees: [mesh, count, trunk radius, has foliage canopy]
 	var tree_sets: Array = []
 	if v.pine > 0:
-		tree_sets.append([_pine_mesh(false), v.pine, 0.32])
+		tree_sets.append([_pine_mesh(false), v.pine, 0.32, true])
 	if v.snow_pine > 0:
-		tree_sets.append([_pine_mesh(true), v.snow_pine, 0.32])
+		tree_sets.append([_pine_mesh(true), v.snow_pine, 0.32, true])
 	if v.oak > 0:
-		tree_sets.append([_oak_mesh("leaves"), v.oak, 0.36])
+		tree_sets.append([_oak_mesh("leaves"), v.oak, 0.36, true])
 	if v.autumn_oak > 0:
 		for li in 3:
 			tree_sets.append([_oak_mesh("leaves_autumn%d" % (li + 1)),
-				int(v.autumn_oak / 3.0), 0.36])
+				int(v.autumn_oak / 3.0), 0.36, true])
 	if v.bare > 0:
-		tree_sets.append([_bare_tree_mesh("bark"), v.bare, 0.28])
+		tree_sets.append([_bare_tree_mesh("bark"), v.bare, 0.28, false])
 	if v.dead > 0:
-		tree_sets.append([_bare_tree_mesh("deadwood"), v.dead, 0.28])
+		tree_sets.append([_bare_tree_mesh("deadwood"), v.dead, 0.28, false])
 	if v.saguaro > 0:
-		tree_sets.append([_saguaro_mesh(), v.saguaro, 0.34])
+		tree_sets.append([_saguaro_mesh(), v.saguaro, 0.34, false])
 
 	for ts in tree_sets:
 		var xforms: Array[Transform3D] = []
@@ -71,6 +78,13 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			cs.shape = sh
 			cs.position = Vector3(x, h + 2.5, z)
 			cols.add_child(cs)
+			if ts[3]:
+				var cc := CollisionShape3D.new()
+				var csph := SphereShape3D.new()
+				csph.radius = 1.7 * sc
+				cc.shape = csph
+				cc.position = Vector3(x, h - sink + 3.8 * sc, z)
+				canopies.add_child(cc)
 		_add_multimesh(root, ts[0], xforms)
 
 	# Ground decor (no collision).

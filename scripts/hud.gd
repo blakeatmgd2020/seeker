@@ -20,8 +20,9 @@ var target_name: Label
 var target_status: Label
 var hover_label: Label
 var day_label: Label
+var speed_label: Label
 var main: Node = null
-var tool_chips := {}
+var item_box: HBoxContainer
 var map_panel: Control
 var map_overlay: MiniOverlay
 var compass: CompassStrip
@@ -134,12 +135,94 @@ func clear_annotations() -> void:
 
 
 func set_tools(t: Dictionary) -> void:
-	for id in tool_chips:
-		tool_chips[id].add_theme_color_override("font_color",
-			Color(1.0, 0.82, 0.25) if t[id] else Color(1, 1, 1, 0.3))
+	for c in item_box.get_children():
+		item_box.remove_child(c)
+		c.queue_free()
+	for id in ["map", "compass", "spyglass", "pencil", "notepad", "irons", "rope"]:
+		if t.get(id, false):
+			item_box.add_child(_item_chip(id))
 	map_panel.visible = t.map or t.notepad
 	map_overlay.paper = t.notepad and not t.map
 	compass.visible = t.compass
+	# The row sits under the minimap when it's up, else near the corner.
+	item_box.position.y = 348.0 if map_panel.visible else 70.0
+
+
+func _item_chip(id: String) -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var wrap := CenterContainer.new()
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(ItemIcon.new(id))
+	v.add_child(wrap)
+	var l := _label(9, Color(1.0, 0.9, 0.6))
+	l.text = "Irons" if id == "irons" else id.capitalize()
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(l)
+	return v
+
+
+## A steaming cup, drawn in code — the coffee button's face.
+class CoffeeIcon:
+	extends Control
+
+	func _draw() -> void:
+		var c := size * 0.5 + Vector2(0, 4)
+		draw_rect(Rect2(c + Vector2(-10, -4), Vector2(17, 15)), Color(0.93, 0.92, 0.88))
+		draw_rect(Rect2(c + Vector2(-8, -3), Vector2(13, 4)), Color(0.3, 0.17, 0.08))
+		draw_arc(c + Vector2(9, 3), 5.0, -PI * 0.45, PI * 0.45, 12,
+			Color(0.93, 0.92, 0.88), 2.5)
+		draw_arc(c + Vector2(-4, -10), 3.0, PI * 0.1, PI * 1.1, 10, Color(1, 1, 1, 0.55), 1.5)
+		draw_arc(c + Vector2(2, -13), 3.0, PI * 1.1, PI * 2.1, 10, Color(1, 1, 1, 0.45), 1.5)
+
+
+## A little circular badge with a hand-drawn glyph per item.
+class ItemIcon:
+	extends Control
+	var id := ""
+
+	func _init(i: String) -> void:
+		id = i
+		custom_minimum_size = Vector2(28, 28)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var r := minf(size.x, size.y) * 0.5 - 1.0
+		draw_circle(c, r, Color(0.14, 0.12, 0.09, 0.92))
+		draw_arc(c, r, 0.0, TAU, 24, Color(1.0, 0.82, 0.25), 1.5)
+		match id:
+			"map":
+				draw_rect(Rect2(c + Vector2(-6, -5), Vector2(12, 10)), Color(0.85, 0.78, 0.6))
+				draw_line(c + Vector2(-2, -5), c + Vector2(-2, 5), Color(0.52, 0.42, 0.3), 1.0)
+				draw_line(c + Vector2(2, -5), c + Vector2(2, 5), Color(0.52, 0.42, 0.3), 1.0)
+			"compass":
+				draw_arc(c, 6.5, 0.0, TAU, 20, Color(0.85, 0.85, 0.9), 1.5)
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(0, -6), c + Vector2(-2, 0), c + Vector2(2, 0)]),
+					Color(0.9, 0.25, 0.2))
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(0, 6), c + Vector2(-2, 0), c + Vector2(2, 0)]),
+					Color(0.9, 0.9, 0.95))
+			"spyglass":
+				draw_line(c + Vector2(-6, 5), c + Vector2(2, -3), Color(0.5, 0.35, 0.22), 4.0)
+				draw_line(c + Vector2(2, -3), c + Vector2(6, -7), Color(0.75, 0.75, 0.8), 3.0)
+			"pencil":
+				draw_line(c + Vector2(-5, 5), c + Vector2(3, -3), Color(0.88, 0.72, 0.18), 3.0)
+				draw_line(c + Vector2(3, -3), c + Vector2(6, -6), Color(0.28, 0.2, 0.13), 3.0)
+			"notepad":
+				draw_rect(Rect2(c + Vector2(-5, -6), Vector2(10, 12)), Color(0.93, 0.92, 0.86))
+				for ly in [-3.0, 0.0, 3.0]:
+					draw_line(c + Vector2(-3, ly), c + Vector2(3, ly), Color(0.55, 0.55, 0.6), 1.0)
+			"irons":
+				for ix in [-3.5, 3.5]:
+					draw_colored_polygon(PackedVector2Array([
+						c + Vector2(ix - 2, -5), c + Vector2(ix + 2, -5), c + Vector2(ix, 7)]),
+						Color(0.75, 0.75, 0.8))
+			"rope":
+				draw_arc(c, 5.5, 0.0, TAU, 20, Color(0.62, 0.45, 0.28), 3.0)
+				draw_arc(c, 2.0, 0.0, TAU, 14, Color(0.45, 0.32, 0.2), 2.0)
 
 
 func set_map_texture(tex: Texture2D) -> void:
@@ -538,6 +621,13 @@ func _ready() -> void:
 	day_label.position = Vector2(14, 74)
 	add_child(day_label)
 
+	# movement-speed debug readout: walking = 100%
+	speed_label = _label(13, Color(1, 1, 1, 0.65))
+	speed_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	speed_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	speed_label.position = Vector2(14, -46)
+	add_child(speed_label)
+
 	counter = _label(20, Color.WHITE)
 	counter.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	counter.grow_horizontal = Control.GROW_DIRECTION_BEGIN
@@ -565,15 +655,19 @@ func _ready() -> void:
 	# coffee: clickable once found (bottom-center, under the character);
 	# while active the stamina bar becomes the glowing yellow countdown
 	coffee_btn = Button.new()
-	coffee_btn.text = "Drink coffee"
-	coffee_btn.custom_minimum_size = Vector2(160, 38)
+	coffee_btn.custom_minimum_size = Vector2(56, 56)
+	coffee_btn.tooltip_text = "Drink coffee"
 	coffee_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	coffee_btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	coffee_btn.position = Vector2(-80, -104)
+	coffee_btn.position = Vector2(-28, -122)
 	coffee_btn.visible = false
 	coffee_btn.pressed.connect(func() -> void:
 		if main:
 			main.drink_coffee())
+	var cico := CoffeeIcon.new()
+	cico.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cico.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	coffee_btn.add_child(cico)
 	add_child(coffee_btn)
 	coffee_buff = _label(15, Color(1.0, 0.85, 0.35))
 	coffee_buff.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -629,25 +723,18 @@ func _ready() -> void:
 	hover_label.visible = false
 	add_child(hover_label)
 
-	# tool chips (dim until found), two rows
-	var chips_v := VBoxContainer.new()
-	chips_v.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	chips_v.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	chips_v.position = Vector2(-250, 66)
-	chips_v.size = Vector2(236, 44)
-	chips_v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(chips_v)
-	for row in [["map", "compass", "spyglass", "irons"], ["pencil", "notepad", "rope"]]:
-		var chips := HBoxContainer.new()
-		chips.alignment = BoxContainer.ALIGNMENT_END
-		chips.add_theme_constant_override("separation", 12)
-		chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		chips_v.add_child(chips)
-		for id in row:
-			var c := _label(14, Color(1, 1, 1, 0.3))
-			c.text = id.capitalize()
-			chips.add_child(c)
-			tool_chips[id] = c
+	# found items: circular icons under the minimap, appearing as they are
+	# collected — the unfound roster stays hidden, since the seeker doesn't
+	# know what a given world holds
+	item_box = HBoxContainer.new()
+	item_box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	item_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	item_box.alignment = BoxContainer.ALIGNMENT_END
+	item_box.add_theme_constant_override("separation", 3)
+	item_box.position = Vector2(-250, 70)
+	item_box.size = Vector2(236, 48)
+	item_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(item_box)
 
 	# minimap (visible once the map is found)
 	map_panel = Control.new()
@@ -792,6 +879,10 @@ func set_day_info(text: String) -> void:
 	day_label.text = text
 
 
+func set_speed(pct: float) -> void:
+	speed_label.text = "Speed %d%%" % int(roundf(pct))
+
+
 func set_stamina(v: float, locked: bool, lock_left := 0.0) -> void:
 	if main and main.coffee_active():
 		winded_label.visible = false
@@ -816,8 +907,11 @@ func set_stamina(v: float, locked: bool, lock_left := 0.0) -> void:
 
 
 func win(total: int, time_str: String) -> void:
+	# A compact strip at the very top so the path recap map stays clear.
 	banner.visible = true
-	banner_label.text = "EVERY HIDING PLACE SEARCHED!\nAll %d found in %s. Here is everywhere you went.\nAnother world awaits — a new day, or a random map." % [total, time_str]
+	banner.position = Vector2(-330, 4)
+	banner_label.add_theme_font_size_override("font_size", 18)
+	banner_label.text = "ALL %d FOUND in %s — here is everywhere you went. M closes." % [total, time_str]
 	_open_big(big_map)
 
 

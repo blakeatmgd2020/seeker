@@ -40,6 +40,19 @@ func _tool_count(main) -> int:
 	return n
 
 
+## Items are conditional on world features: 6 base, +irons with nests,
+## +rope with a cavern well.
+func _expected_items(main) -> int:
+	var n := 6
+	for s in main.structures:
+		if s.kind == "nest":
+			n += 1
+			break
+	if not main.well_drops.is_empty():
+		n += 1
+	return n
+
+
 func _nest_check(main, fails: Array[String], tagp: String) -> void:
 	var nests := 0
 	for s in main.structures:
@@ -48,14 +61,14 @@ func _nest_check(main, fails: Array[String], tagp: String) -> void:
 			var ground: float = main.terrain.height_at(s.position.x, s.position.z)
 			if s.position.y - ground < 8.0:
 				fails.append(tagp + "nest not high above terrain")
-	if nests != 2:
-		fails.append(tagp + "expected 2 nests, got %d" % nests)
+	if nests != 2 and nests != 0:
+		fails.append(tagp + "expected 0 or 2 nests, got %d" % nests)
 	var irons_climbs := 0
 	for c in main.climbables:
 		if not c.get("free", false):
 			irons_climbs += 1
-	if irons_climbs != 2:
-		fails.append(tagp + "expected 2 irons climbables, got %d" % irons_climbs)
+	if irons_climbs != nests:
+		fails.append(tagp + "irons climbables (%d) != nests (%d)" % [irons_climbs, nests])
 
 
 func _process(_delta: float) -> bool:
@@ -103,14 +116,24 @@ func _process(_delta: float) -> bool:
 	if main.menu == null:
 		fails.append("menu missing")
 
-	# Tools: all 7 hidden in distinct structures.
+	# Items hidden in distinct structures — the set is conditional on what
+	# the world holds.
 	var tool_ids: Array = []
 	for s in main.structures:
 		if not s.tool_id.is_empty():
 			tool_ids.append(s.tool_id)
 	tool_ids.sort()
-	if tool_ids != ["coffee", "compass", "irons", "map", "notepad", "pencil", "rope", "spyglass"]:
-		fails.append("tool spots wrong: %s" % str(tool_ids))
+	var expect := ["coffee", "compass", "map", "notepad", "pencil", "spyglass"]
+	var has_nest := false
+	for s in main.structures:
+		has_nest = has_nest or s.kind == "nest"
+	if has_nest:
+		expect.append("irons")
+	if not main.well_drops.is_empty():
+		expect.append("rope")
+	expect.sort()
+	if tool_ids != expect:
+		fails.append("tool spots wrong: %s vs expected %s" % [str(tool_ids), str(expect)])
 	for id in main.tools:
 		if main.tools[id]:
 			fails.append("tool '%s' should start uncollected" % id)
@@ -140,8 +163,9 @@ func _process(_delta: float) -> bool:
 	if not main.tools[tid]:
 		fails.append("tool '%s' not collected on search" % tid)
 	var uncollected := _tool_count(main)
-	if uncollected != 7:
-		fails.append("expected 7 unfound items after collecting 1, got %d" % uncollected)
+	if uncollected != _expected_items(main) - 1:
+		fails.append("expected %d unfound items after collecting 1, got %d" % [
+			_expected_items(main) - 1, uncollected])
 
 	# Coffee: find it, drink it, buff runs.
 	var coffee_s: Interactable = null
@@ -214,8 +238,9 @@ func _process(_delta: float) -> bool:
 		fails.append("state not reset on day change")
 	if main.has_coffee or main.coffee_active():
 		fails.append("coffee not reset on day change")
-	if _tool_count(main) != 8:
-		fails.append("day change should hide 8 fresh items, got %d" % _tool_count(main))
+	if _tool_count(main) != _expected_items(main):
+		fails.append("day change should hide %d fresh items, got %d" % [
+			_expected_items(main), _tool_count(main)])
 
 	# Feedback round 3: arrow-turn actions, Dev Note button, birds, winded UI.
 	if not (InputMap.has_action("turn_left") and InputMap.has_action("turn_right")):
@@ -226,9 +251,21 @@ func _process(_delta: float) -> bool:
 			dev_btn = ch.visible
 	if not dev_btn:
 		fails.append("Dev Note button missing or hidden")
+	var nestn := 0
+	for s in main.structures:
+		if s.kind == "nest":
+			nestn += 1
 	var birds = main.world.get_node_or_null("Birds")
-	if birds == null or birds.get_child_count() < 3:
-		fails.append("birds missing from world")
+	if nestn >= 2:
+		if birds == null or birds.get_child_count() < 3:
+			fails.append("birds missing from a world with nests")
+	elif birds != null:
+		fails.append("birds present in a nestless world")
+	if birds != null:
+		for sp2 in birds.spots:
+			if not (sp2 is Vector3):
+				fails.append("bird loiter perch is not a Vector3: %s" % str(sp2))
+				break
 	main.hud.set_stamina(0.2, true, 42.0)
 	if not main.hud.winded_label.visible \
 			or main.hud.winded_label.text.find("Winded") == -1:
@@ -364,8 +401,9 @@ func _process(_delta: float) -> bool:
 			continue
 		if main.structures.size() < 20 or main.structures.size() > 32:
 			fails.append("%s: expected 20-32 structures, got %d" % [b, main.structures.size()])
-		if _tool_count(main) != 8:
-			fails.append("%s: expected 8 hidden items, got %d" % [b, _tool_count(main)])
+		if _tool_count(main) != _expected_items(main):
+			fails.append("%s: expected %d hidden items, got %d" % [b,
+				_expected_items(main), _tool_count(main)])
 		if main.weather_name.is_empty():
 			fails.append("%s: no weather rolled" % b)
 		if main.world.get_node_or_null("Village") == null:

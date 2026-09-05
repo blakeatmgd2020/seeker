@@ -23,6 +23,7 @@ var _dim: ColorRect
 var _btn: Button
 var _panel: PanelContainer
 var _notes_panel: PanelContainer
+var _notes_title: Label
 var _notes_label: Label
 var _text: TextEdit
 var _cat_group := ButtonGroup.new()
@@ -30,10 +31,23 @@ var _cat_buttons: Array[Button] = []
 
 
 func _show_notes() -> void:
+	_notes_title.text = "Session notes"
 	if notes.is_empty():
 		_notes_label.text = "No notes yet this session."
 	else:
 		_notes_label.text = "\n".join(notes)
+	_panel.visible = false
+	_notes_panel.visible = true
+
+
+## What changed, release by release — so a playtest knows what to look
+## out for in the running build.
+func _show_history() -> void:
+	_notes_title.text = "Version history"
+	if main:
+		_notes_label.text = "\n\n".join(main.CHANGELOG)
+	else:
+		_notes_label.text = "No version data."
 	_panel.visible = false
 	_notes_panel.visible = true
 
@@ -120,11 +134,20 @@ func _ready() -> void:
 	cancel.custom_minimum_size = Vector2(140, 34)
 	cancel.pressed.connect(close_form)
 	row.add_child(cancel)
+	var vrow := HBoxContainer.new()
+	vrow.alignment = BoxContainer.ALIGNMENT_CENTER
+	vrow.add_theme_constant_override("separation", 10)
+	v.add_child(vrow)
 	var view := Button.new()
 	view.text = "View session notes"
 	view.custom_minimum_size = Vector2(180, 30)
 	view.pressed.connect(_show_notes)
-	v.add_child(view)
+	vrow.add_child(view)
+	var hist := Button.new()
+	hist.text = "Version history"
+	hist.custom_minimum_size = Vector2(160, 30)
+	hist.pressed.connect(_show_history)
+	vrow.add_child(hist)
 
 	# Session-notes viewer.
 	_notes_panel = PanelContainer.new()
@@ -137,11 +160,11 @@ func _ready() -> void:
 	var nv := VBoxContainer.new()
 	nv.add_theme_constant_override("separation", 8)
 	nm.add_child(nv)
-	var nt := Label.new()
-	nt.text = "Session notes"
-	nt.add_theme_font_size_override("font_size", 20)
-	nt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	nv.add_child(nt)
+	_notes_title = Label.new()
+	_notes_title.text = "Session notes"
+	_notes_title.add_theme_font_size_override("font_size", 20)
+	_notes_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nv.add_child(_notes_title)
 	var sc := ScrollContainer.new()
 	sc.custom_minimum_size = Vector2(560, 380)
 	nv.add_child(sc)

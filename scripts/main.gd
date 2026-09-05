@@ -46,7 +46,17 @@ void fragment() {
 }
 "
 
-const VERSION := "r5 · 2026-09-04"
+const VERSION := "r6 · 2026-09-04 17:30"
+## One digest per release, newest first — readable in-game from the Dev
+## Note interface so a playtest knows what to look out for.
+const CHANGELOG := [
+	"r6 · 2026-09-04 17:30 — Conditional items: irons/rope are only hidden when the world actually has nests / a cavern well (6-8 items per world; ~1 in 4 maps has no nests). Grey unfound-item roster removed; found items show as circular icons under the minimap. Movement speed readout (walk = 100%). Real sitting pose; leaving crouch or sit always stands you up. Square coffee button with icon. Wild nodes favor shorelines. Tree canopies now block the spyglass. Compact win banner. This version history.",
+	"r5 · 2026-09-04 — Rope + well caverns (climb in over the rim, slide down). Two-story, two-room, and roofdeck houses with ladders; house cellars, some empty. Sit (C). Keep moving with the map or Dev Note open. Victory recap draws your whole path. Birds perch on roofs/trees and only sometimes flee to nests. Eraser retired — the pencil erases. Scope vertically un-inverted, labels clipped to the lens.",
+	"r4 · 2026-09-04 — Cellars rebuilt: walk in standing, nothing pokes outside. Crouch. Slippery ice. Autorun (`). Pencil marks no longer retroactive — re-sight to ink. Circular minimap; rotating maps have no sheet edge. Directional water wake. Birds scatter when approached. Version stamp.",
+	"r3 · 2026-09-03 — Winded countdown with green refill bar. Dev Note corner button. Arrow-key turning. Ink X on searched nodes. Ambient birds commuting between nests.",
+	"r2 · 2026-09-01 — Terrain holes: cave and cellar entrances actually open. 0-6 villages, 1-12 buildings, empty buildings. Notepad minimap + N view. Coffee button, stamina lockout. Water wake and campfire smoke.",
+	"r1 · 2026-08-31 — The hunt: open every node. Biomes, weather, findable tools, spyglass spotting, daily seeds, random maps, title screen, this feedback system.",
+]
 const WEEKDAYS := ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTHS := ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const STRUCTURE_TOTAL := 20
@@ -475,17 +485,22 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 		var tmp = bag[i]
 		bag[i] = bag[j]
 		bag[j] = tmp
-	# Reserve three slots: two great-tree nests and the hilltop chest.
-	while bag.size() > wild_total - 3:
+	# Reserve slots for the hilltop chest and — on most maps — two
+	# great-tree nests. About 1 in 4 worlds has no nests (and hides no
+	# climbing irons).
+	var has_nests := wrng.randf() < 0.75
+	var reserve := 3 if has_nests else 1
+	while bag.size() > wild_total - reserve:
 		bag.pop_back()
 	var fi := 0
-	while bag.size() < wild_total - 3:
+	while bag.size() < wild_total - reserve:
 		var entry: Array = biome.wild_pool[fi % biome.wild_pool.size()]
 		fi += 1
 		bag.append({kind = entry[0], display = entry[1]})
-	var nest_name := "spire nest" if biome.id == "desert" else "bird nest"
-	bag.append({kind = "nest", display = nest_name})
-	bag.append({kind = "nest", display = nest_name})
+	if has_nests:
+		var nest_name := "spire nest" if biome.id == "desert" else "bird nest"
+		bag.append({kind = "nest", display = nest_name})
+		bag.append({kind = "nest", display = nest_name})
 
 	var pts: Array[Vector2] = []
 	for sp in bag:
@@ -504,7 +519,13 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 				continue
 			if not _village_clear(p, 10.0):
 				continue
-			if terrain.height_at(p.x, p.y) < terrain.water_y + 1.2:
+			var ph := terrain.height_at(p.x, p.y)
+			if ph < terrain.water_y + 1.2:
+				continue
+			# Shoreline bias: hiding spots favor the low ground near water.
+			# Early attempts often reject high-and-dry candidates; if no
+			# shore is available the later attempts take anything.
+			if attempt < 60 and ph > terrain.water_y + 3.5 and wrng.randf() < 0.45:
 				continue
 			if terrain.normal_at(p.x, p.y).y < min_ny:
 				continue
@@ -678,8 +699,16 @@ func _place_player(wrng: RandomNumberGenerator) -> void:
 # --- tools ---------------------------------------------------------------
 
 func _assign_tools(trng: RandomNumberGenerator) -> void:
-	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "irons",
-		"rope", "coffee"]
+	# Conditional gear: an item is only hidden when the world holds
+	# something to use it on — irons need nests, the rope needs a cavern
+	# well. Worlds carry 6-8 hidden items.
+	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "coffee"]
+	for s in structures:
+		if s.kind == "nest":
+			ids.append("irons")
+			break
+	if not well_drops.is_empty():
+		ids.append("rope")
 	var picks: Array[int] = []
 	while picks.size() < ids.size():
 		var i := trng.randi_range(0, structures.size() - 1)
@@ -928,6 +957,7 @@ func _shot_routine() -> void:
 	player.set_target(nearest)
 	tools = {map = true, compass = false, spyglass = true,
 		pencil = true, notepad = true, irons = true, rope = true}
+	has_coffee = true
 	hud.set_tools(tools)
 	for s in structures:
 		s.seen = true

@@ -259,8 +259,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 			for vx in [-3.0, -1.5, 0.0, 1.5, 3.0]:
 				Util.cyl(b, 0.09, 0.09, 0.5, Vector3(vx, F + h - 0.25, fz + 0.2),
 					TexF.mat("darkwood"), Vector3(90, 0, 0), 8)
-		res.perch = b.transform * Transform3D(Basis(),
-			Vector3(w * 0.5 - 0.6, F + h + 0.8, d * 0.5 - 0.6))
+		res.perch = b.transform * Vector3(w * 0.5 - 0.6, F + h + 0.8, d * 0.5 - 0.6)
 	elif style == "alpine":
 		var roof := PrismMesh.new()
 		roof.size = Vector3(w + 1.4, 2.8, d + 1.4)
@@ -274,7 +273,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 			TexF.mat("stone"), false)
 		Util.box(b, Vector3(0.8, 0.15, 0.8), Vector3(w * 0.5 - 1.2, F + h + 2.35, -d * 0.5 + 1.4),
 			TexF.mat("snow"), false)
-		res.perch = b.transform * Transform3D(Basis(), Vector3(0, F + h + 2.9, 0))
+		res.perch = b.transform * Vector3(0, F + h + 2.9, 0)
 	else:
 		var roof := PrismMesh.new()
 		roof.size = Vector3(w + 1.2, 2.2, d + 1.2)
@@ -288,7 +287,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 				ivy.material = TexF.mat("leaves_autumn1")
 				var mi := Util.mesh(b, ivy, iv)
 				mi.scale = Vector3(1.0, 1.2, 0.4)
-		res.perch = b.transform * Transform3D(Basis(), Vector3(0, F + h + 2.3, 0))
+		res.perch = b.transform * Vector3(0, F + h + 2.3, 0)
 
 	var ward_local := Vector3(1.2, FLOOR_TOP, -2.35)
 	match variant:
@@ -407,8 +406,8 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 
 	var res := {chest = b.transform * Transform3D(
 		Basis(Vector3.UP, deg_to_rad(-20.0)), Vector3(-3.0, FLOOR_TOP, -2.4)),
-		perch = b.transform * Transform3D(Basis(), Vector3(0, F + h + 2.8, 0)
-			if style != "adobe" else Vector3(w * 0.5 - 0.6, F + h + 0.8, d * 0.5 - 0.6))}
+		perch = b.transform * (Vector3(0, F + h + 2.8, 0) if style != "adobe"
+			else Vector3(w * 0.5 - 0.6, F + h + 0.8, d * 0.5 - 0.6))}
 	if with_basement:
 		res.cellar = b.transform * Transform3D(
 			Basis(Vector3.UP, deg_to_rad(35.0)), _cellar(b, 3.3))
