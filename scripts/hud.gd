@@ -153,7 +153,7 @@ func set_tools(t: Dictionary) -> void:
 	for c in item_box.get_children():
 		item_box.remove_child(c)
 		c.queue_free()
-	for id in ["map", "compass", "spyglass", "pencil", "notepad", "irons", "rope"]:
+	for id in ["map", "compass", "spyglass", "pencil", "notepad", "irons", "rope", "flashlight"]:
 		if t.get(id, false):
 			item_box.add_child(_item_chip(id))
 	map_panel.visible = t.map or t.notepad
@@ -238,6 +238,12 @@ class ItemIcon:
 			"rope":
 				draw_arc(c, 5.5, 0.0, TAU, 20, Color(0.62, 0.45, 0.28), 3.0)
 				draw_arc(c, 2.0, 0.0, TAU, 14, Color(0.45, 0.32, 0.2), 2.0)
+			"flashlight":
+				draw_rect(Rect2(c + Vector2(-7, -2), Vector2(8, 4)), Color(0.4, 0.4, 0.46))
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(1, -3), c + Vector2(1, 3),
+					c + Vector2(8, 6), c + Vector2(8, -6)]),
+					Color(1.0, 0.93, 0.5, 0.9))
 
 
 func set_map_texture(tex: Texture2D) -> void:
@@ -411,6 +417,7 @@ class BigMap:
 	var paper := false  ## notepad view: paper + trail + spots, no terrain
 	var annot_img: Image
 	var annot_tex: ImageTexture
+	var _recap_t := 0.0
 	var _last := Vector2(-9999, -9999)
 	var _content_xf := Transform2D()
 
@@ -423,8 +430,9 @@ class BigMap:
 		annot_img.fill(Color(0, 0, 0, 0))
 		annot_tex = ImageTexture.create_from_image(annot_img)
 
-	func _process(_d: float) -> void:
+	func _process(d: float) -> void:
 		if visible:
+			_recap_t += d
 			queue_redraw()
 
 	func _to_px(w: Vector2) -> Vector2:
@@ -474,6 +482,23 @@ class BigMap:
 			for p in main.full_path:
 				fp.append(_to_px(p))
 			draw_polyline(fp, Color(0.2, 0.35, 0.72, 0.9), 2.5)
+			# A green dot walks the whole route, end to end, every 30 s.
+			var total_len := 0.0
+			for i in range(1, fp.size()):
+				total_len += fp[i - 1].distance_to(fp[i])
+			if total_len > 1.0:
+				var want := fmod(_recap_t, 30.0) / 30.0 * total_len
+				var acc2 := 0.0
+				var dot_p := fp[0]
+				for i in range(1, fp.size()):
+					var seg := fp[i - 1].distance_to(fp[i])
+					if acc2 + seg >= want:
+						dot_p = fp[i - 1].lerp(fp[i], (want - acc2) / maxf(seg, 0.001))
+						break
+					acc2 += seg
+					dot_p = fp[i]
+				draw_circle(dot_p, 5.0, Color(0.2, 0.95, 0.35))
+				draw_arc(dot_p, 8.0, 0.0, TAU, 18, Color(0.2, 0.95, 0.35, 0.55), 1.6)
 		if main.tools.pencil or recap:
 			if main.trail.size() > 1:
 				var pts := PackedVector2Array()
@@ -626,7 +651,7 @@ class SpyOverlay:
 
 func _ready() -> void:
 	var help := _label(14, Color(1, 1, 1, 0.75))
-	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom · Click target · Right-click / E search\nWASD move · Arrows turn/walk · Shift sprint · Space jump · X crouch · C sit · ` autorun\nZ spyglass · M map · N notepad · Tab cycle spots · F8 / Dev Note feedback · Esc deselect / menu"
+	help.text = "Left-drag orbit · Right-drag steer · Both buttons run · Wheel zoom · Click target · Right-click / E search\nWASD move · Arrows turn/walk · Shift sprint · Space jump · X crouch · C sit · ` autorun\nZ spyglass · F flashlight · M map · N notepad · Tab cycle spots · F8 / Dev Note feedback · Esc menu"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(14, 8)
 	add_child(help)
@@ -938,6 +963,10 @@ func show_recap(found: int, total: int, time_str: String, ended := false) -> voi
 	else:
 		banner_label.text = "EVERY HIDING PLACE SEARCHED — all %d in %s!\nHere is everywhere you went. M closes." % [total, time_str]
 	_open_big(big_map)
+	# The report hugs the map's top edge with a little air between them.
+	banner.offset_top = big_map.position.y - 104
+	banner.offset_bottom = banner.offset_top
+	big_map._recap_t = 0.0
 
 
 func hide_banner() -> void:

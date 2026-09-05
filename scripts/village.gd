@@ -32,7 +32,8 @@ static func layout(terrain: Terrain, wrng: RandomNumberGenerator, biome: Diction
 				elif vr < 0.5:
 					variant = "roofdeck"
 			buildings.append({kind = kind, pos = p, yaw = wrng.randf_range(0.0, 360.0),
-				node = false, basement = false, variant = variant, cellar_node = false})
+				node = false, basement = false, variant = variant, cellar_node = false,
+				chimney = kind == "house" and wrng.randf() < 0.45})
 		var lpts: Array[Vector2] = []
 		for i in wrng.randi_range(0, 2):
 			if loose.size() >= 6:
@@ -94,7 +95,7 @@ static func construct(parent: Node3D, terrain: Terrain, lay: Dictionary,
 		var res: Dictionary
 		if b.kind == "house":
 			res = _house(root, terrain, b.pos, b.yaw, style,
-				b.get("variant", "single"), b.basement)
+				b.get("variant", "single"), b.basement, b.get("chimney", false))
 			if b.node:
 				specs.append({kind = "wardrobe", display = "wardrobe", xform = res.ward})
 			excl.append(Vector3(b.pos.x, b.pos.y, 9.0))
@@ -224,7 +225,8 @@ static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 
 
 static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
-		style: String, variant := "single", basement := false) -> Dictionary:
+		style: String, variant := "single", basement := false,
+		chimney := false) -> Dictionary:
 	var m := _style_mats(style)
 	var w := 11.0 if variant == "tworoom" else 8.0
 	var d := 6.0
@@ -341,11 +343,80 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	wl.omni_range = 7.0
 	wl.light_energy = 1.4
 	b.add_child(wl)
+	if chimney:
+		# A lived-in house: stone stack with curling smoke, and a matching
+		# fireplace inside. Alpine houses use their built-in roof chimney;
+		# everyone else grows a stone stack up the east wall.
+		var stone_m := TexF.mat("stone")
+		var hz := -1.6 if style == "alpine" else 1.4
+		if style == "alpine":
+			_smoke(b, Vector3(w * 0.5 - 1.2, F + h + 2.55, -d * 0.5 + 1.4))
+		else:
+			var top_y := F + h + (1.2 if flat_roof else 1.35)
+			Util.box(b, Vector3(0.8, top_y + 0.4, 0.8),
+				Vector3(w * 0.5 + 0.38, (top_y - 0.4) * 0.5, 1.4), stone_m)
+			Util.box(b, Vector3(1.0, 0.16, 1.0),
+				Vector3(w * 0.5 + 0.38, top_y + 0.08, 1.4), stone_m, false)
+			_smoke(b, Vector3(w * 0.5 + 0.38, top_y + 0.3, 1.4))
+		var hx := w * 0.5 - 0.55
+		Util.box(b, Vector3(0.75, 1.35, 1.5), Vector3(hx, FLOOR_TOP + 0.675, hz), stone_m)
+		Util.box(b, Vector3(0.5, 0.85, 0.95), Vector3(hx - 0.2, FLOOR_TOP + 0.43, hz),
+			TexF.plain(Color(0.05, 0.04, 0.03)), false)
+		var ember := StandardMaterial3D.new()
+		ember.albedo_color = Color(1.0, 0.45, 0.1)
+		ember.emission_enabled = true
+		ember.emission = Color(1.0, 0.4, 0.08)
+		ember.emission_energy_multiplier = 1.8
+		var em := BoxMesh.new()
+		em.size = Vector3(0.3, 0.14, 0.6)
+		em.material = ember
+		Util.mesh(b, em, Vector3(hx - 0.35, FLOOR_TOP + 0.08, hz))
+		var fl := OmniLight3D.new()
+		fl.position = Vector3(hx - 0.5, FLOOR_TOP + 0.5, hz)
+		fl.light_color = Color(1.0, 0.6, 0.3)
+		fl.omni_range = 5.5
+		fl.light_energy = 1.1
+		b.add_child(fl)
 	if basement:
 		res.cellar = b.transform * Transform3D(
 			Basis(Vector3.UP, deg_to_rad(35.0)), _cellar(b, 2.6))
 	res.ward = b.transform * Transform3D(Basis(), ward_local)
 	return res
+
+
+## A lazy chimney-smoke column (same look as campfire smoke, permanent).
+static func _smoke(b: Node3D, pos: Vector3) -> void:
+	var smoke := GPUParticles3D.new()
+	smoke.amount = 20
+	smoke.lifetime = 5.5
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 5.0
+	pm.initial_velocity_min = 0.5
+	pm.initial_velocity_max = 0.9
+	pm.gravity = Vector3(0, 0.25, 0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.3
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.25, 1.0])
+	grad.colors = PackedColorArray([Color(0.55, 0.54, 0.52, 0.0),
+		Color(0.55, 0.54, 0.52, 0.45), Color(0.62, 0.62, 0.62, 0.0)])
+	var gt := GradientTexture1D.new()
+	gt.gradient = grad
+	pm.color_ramp = gt
+	smoke.process_material = pm
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.55, 0.55)
+	var smat := StandardMaterial3D.new()
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.vertex_color_use_as_albedo = true
+	smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	qm.material = smat
+	smoke.draw_pass_1 = qm
+	smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	smoke.position = pos
+	b.add_child(smoke)
 
 
 ## Cuts a horizontal slab into four boxes around a rectangular hole.

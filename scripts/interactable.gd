@@ -125,6 +125,13 @@ func spawn_tool_prop(id: String) -> void:
 				TexF.plain(Color(0.93, 0.92, 0.86)), false)
 			Util.box(holder, Vector3(0.3, 0.06, 0.06), Vector3(0, 0.005, -0.18),
 				TexF.mat("metal"), false)
+		"flashlight":
+			Util.cyl(holder, 0.05, 0.05, 0.24, Vector3.ZERO, TexF.mat("metal"),
+				Vector3(0, 0, 90), 10)
+			Util.cyl(holder, 0.075, 0.05, 0.08, Vector3(0.15, 0, 0), TexF.mat("metal"),
+				Vector3(0, 0, 90), 10)
+			Util.cyl(holder, 0.06, 0.06, 0.01, Vector3(0.195, 0, 0),
+				TexF.plain(Color(1.0, 0.95, 0.6)), Vector3(0, 0, 90), 10)
 		"rope":
 			var coil := TorusMesh.new()
 			coil.inner_radius = 0.07

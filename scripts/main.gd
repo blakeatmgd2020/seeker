@@ -46,10 +46,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r7 · 2026-09-04 18:40"
+const VERSION := "r8 · 2026-09-05 10:30"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r8 · 2026-09-05 10:30 — DAY AND NIGHT: a 15-minute cycle (10 day, 5 night) with a real sun and moon, drifting clouds, stars, dawns and dusks; each seed starts at its own hour, and the daily mood survives as a color grade. Nights are dark but moonlit — overcast nights are properly black. Caves, cellars, and well caverns go genuinely dark. New findable: the FLASHLIGHT (F), never hidden underground. Also: fez with a physics tassel, backpack, chimneys with fireplaces on some houses, recap path traced by a moving dot, snappier sitting recovery, easier well entry (S works too).",
 	"r7 · 2026-09-04 18:40 — Wells fixed: open rims you can see down, plank covers until you own the rope (no more ropeless traps), and climbing out actually works. Cellars deeper with taller vaults; no bottom-step flicker. Cave exits walkable (no jump needed); caves can be tucked into the barrier ridges. Sprint decays to plain walking speed. W or mouse-run cancels autorun. Smooth mouse steering with the map open. Tighter top-right HUD. Esc menu: End current map reveals the recap. Recap report centered above a smaller map. Hollow stumps look hollow; firewood is smaller and often near fire pits.",
 	"r6 · 2026-09-04 17:30 — Conditional items: irons/rope are only hidden when the world actually has nests / a cavern well (6-8 items per world; ~1 in 4 maps has no nests). Grey unfound-item roster removed; found items show as circular icons under the minimap. Movement speed readout (walk = 100%). Real sitting pose; leaving crouch or sit always stands you up. Square coffee button with icon. Wild nodes favor shorelines. Tree canopies now block the spyglass. Compact win banner. This version history.",
 	"r5 · 2026-09-04 — Rope + well caverns (climb in over the rim, slide down). Two-story, two-room, and roofdeck houses with ladders; house cellars, some empty. Sit (C). Keep moving with the map or Dev Note open. Victory recap draws your whole path. Birds perch on roofs/trees and only sometimes flee to nests. Eraser retired — the pencil erases. Scope vertically un-inverted, labels clipped to the lens.",
@@ -58,6 +59,88 @@ const CHANGELOG := [
 	"r2 · 2026-09-01 — Terrain holes: cave and cellar entrances actually open. 0-6 villages, 1-12 buildings, empty buildings. Notepad minimap + N view. Coffee button, stamina lockout. Water wake and campfire smoke.",
 	"r1 · 2026-08-31 — The hunt: open every node. Biomes, weather, findable tools, spyglass spotting, daily seeds, random maps, title screen, this feedback system.",
 ]
+## Custom sky: gradient + sun and moon discs + drifting fbm clouds + stars.
+const SKY_SHADER := "
+shader_type sky;
+uniform vec3 sun_dir = vec3(0.0, 1.0, 0.0);
+uniform vec3 moon_dir = vec3(0.0, -1.0, 0.0);
+uniform vec3 col_top : source_color = vec3(0.3, 0.55, 0.9);
+uniform vec3 col_horizon : source_color = vec3(0.72, 0.82, 0.92);
+uniform vec3 col_ground : source_color = vec3(0.12, 0.14, 0.12);
+uniform vec3 sun_col : source_color = vec3(1.0, 0.95, 0.85);
+uniform vec3 cloud_col : source_color = vec3(1.0, 1.0, 1.0);
+uniform float cloud_cover = 0.35;
+uniform float star_amt = 0.0;
+uniform float moon_bright = 0.0;
+
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 345.45));
+	p += dot(p, p + 34.345);
+	return fract(p.x * p.y);
+}
+
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x),
+		mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+float fbm(vec2 p) {
+	float a = 0.5;
+	float s = 0.0;
+	for (int i = 0; i < 4; i++) {
+		s += a * vnoise(p);
+		p *= 2.13;
+		a *= 0.5;
+	}
+	return s;
+}
+
+void sky() {
+	vec3 d = EYEDIR;
+	vec3 col;
+	if (d.y < 0.0) {
+		col = col_ground;
+	} else {
+		col = mix(col_top, col_horizon, pow(1.0 - d.y, 2.0));
+		if (star_amt > 0.01) {
+			vec2 spp = d.xz / (d.y + 0.3) * 60.0;
+			float st = step(0.9975, hash21(floor(spp)));
+			col += vec3(st * star_amt * smoothstep(0.05, 0.3, d.y));
+		}
+		float sd = dot(d, sun_dir);
+		col += sun_col * (smoothstep(0.9995, 0.9999, sd) * 4.0
+			+ pow(max(sd, 0.0), 64.0) * 0.22);
+		float md = dot(d, moon_dir);
+		col += vec3(0.88, 0.92, 1.0) * moon_bright
+			* (smoothstep(0.9996, 0.99985, md) * 3.0 + pow(max(md, 0.0), 128.0) * 0.12);
+		vec2 cuv = d.xz / (d.y + 0.15) * 0.9 + vec2(TIME * 0.006, TIME * 0.0016);
+		float cm = smoothstep(1.05 - cloud_cover, 1.35 - cloud_cover, fbm(cuv))
+			* smoothstep(0.02, 0.12, d.y);
+		col = mix(col, cloud_col, cm * 0.85);
+	}
+	COLOR = col;
+}
+"
+
+## Time-of-day keyframes: phase, sky top, horizon, sun tint, sun energy,
+## ambient energy. Phase 0 = sunrise; day runs to 2/3, night to 1.
+const SKY_KEYS := [
+	[0.00, Color(0.16, 0.2, 0.38), Color(0.98, 0.55, 0.32), Color(1.0, 0.72, 0.45), 0.55, 0.5],
+	[0.07, Color(0.24, 0.44, 0.74), Color(0.74, 0.79, 0.85), Color(1.0, 0.9, 0.75), 1.1, 0.9],
+	[0.33, Color(0.3, 0.55, 0.9), Color(0.72, 0.82, 0.92), Color(1.0, 0.97, 0.9), 1.35, 1.0],
+	[0.58, Color(0.25, 0.43, 0.72), Color(0.85, 0.72, 0.55), Color(1.0, 0.86, 0.62), 1.05, 0.85],
+	[0.667, Color(0.2, 0.17, 0.34), Color(0.95, 0.45, 0.28), Color(1.0, 0.6, 0.4), 0.45, 0.45],
+	[0.73, Color(0.035, 0.045, 0.1), Color(0.08, 0.1, 0.2), Color(0.75, 0.8, 1.0), 0.0, 0.3],
+	[0.85, Color(0.02, 0.03, 0.07), Color(0.05, 0.07, 0.14), Color(0.75, 0.8, 1.0), 0.0, 0.24],
+	[0.95, Color(0.05, 0.06, 0.13), Color(0.17, 0.12, 0.2), Color(0.9, 0.75, 0.6), 0.0, 0.3],
+	[1.00, Color(0.16, 0.2, 0.38), Color(0.98, 0.55, 0.32), Color(1.0, 0.72, 0.45), 0.55, 0.5],
+]
+const DAY_SECONDS := 900.0   ## full cycle: 10 min day + 5 min night
+const DAY_FRAC := 2.0 / 3.0
+
 const WEEKDAYS := ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const MONTHS := ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const STRUCTURE_TOTAL := 20
@@ -82,7 +165,8 @@ var mood_name := ""
 var weather_id := "clear"
 var weather_name := "Clear"
 var tools := {map = false, compass = false, spyglass = false,
-	pencil = false, notepad = false, irons = false, rope = false}
+	pencil = false, notepad = false, irons = false, rope = false,
+	flashlight = false}
 var has_coffee := false
 var coffee_until_ms := 0
 var well_drops: Array = []
@@ -92,9 +176,18 @@ var spotted: Array[Interactable] = []
 var spot_idx := 0
 var debug_biome := ""
 
+var day_phase := 0.25  ## 0 = sunrise, 2/3 = sunset, 1 wraps to sunrise
 var _env: Environment
-var _sky_mat: ProceduralSkyMaterial
+var _sky_mat: ShaderMaterial
 var _sun: DirectionalLight3D
+var _moon: DirectionalLight3D
+var _mood_tint := Color(1, 1, 1)
+var _amb_mult := 1.0
+var _fog_base := 0.0
+var _wx_sun_mult := 1.0
+var _wx_fog_add := 0.0
+var _wx_moon := 1.0
+var _cloud_cover := 0.35
 var _weather_node: GPUParticles3D = null
 var _water_mat: ShaderMaterial = null
 var _wake := 0.0
@@ -124,6 +217,7 @@ func _village_clear(p: Vector2, margin: float) -> bool:
 
 
 func _process(delta: float) -> void:
+	_update_daylight(delta)
 	if _water_mat == null or player == null or terrain == null:
 		return
 	var in_water: bool = world != null \
@@ -427,6 +521,8 @@ func _build_world() -> void:
 
 	_apply_mood(wrng)
 	_apply_weather(wrng)
+	# Each seed starts at its own hour; the 15-minute cycle runs from there.
+	day_phase = wrng.randf()
 	_place_player(wrng)
 
 	var exclusions: Array = village.exclusions
@@ -467,7 +563,9 @@ func _build_world() -> void:
 	trng.seed = _world_seed() ^ 0x5DEECE66
 	_assign_tools(trng)
 	tools = {map = false, compass = false, spyglass = false,
-		pencil = false, notepad = false, irons = false, rope = false}
+		pencil = false, notepad = false, irons = false, rope = false,
+		flashlight = false}
+	player.flashlight.visible = false
 	has_coffee = false
 	coffee_until_ms = 0
 	trail.clear()
@@ -640,42 +738,130 @@ func _spawn_structure(container: Node3D, sp: Dictionary, wrng: RandomNumberGener
 	structures.append(s)
 
 
+## The rolled mood survives as a subtle per-day color grade over the
+## day/night cycle (plus its ambient/fog character).
 func _apply_mood(wrng: RandomNumberGenerator) -> void:
 	var mood: Dictionary = biome.moods[wrng.randi_range(0, biome.moods.size() - 1)]
 	mood_name = mood.name
-	_sky_mat.sky_top_color = mood.top
-	_sky_mat.sky_horizon_color = mood.horizon
-	_sky_mat.ground_horizon_color = mood.horizon * 0.85
-	_env.fog_density = mood.fog
-	_env.fog_light_color = mood.fogc
-	_env.ambient_light_energy = mood.ambient
-	_sun.light_color = mood.sun
-	_sun.light_energy = mood.energy
-	_sun.rotation_degrees = Vector3(wrng.randf_range(-52.0, -28.0), wrng.randf_range(0.0, 360.0), 0.0)
+	_mood_tint = mood.sun.lerp(Color(1, 1, 1), 0.45)
+	_amb_mult = clampf(mood.ambient, 0.75, 1.25)
+	_fog_base = mood.fog
+
+
+## Interpolates the SKY_KEYS row for the current phase.
+func _sky_sample(p: float) -> Array:
+	for i in SKY_KEYS.size() - 1:
+		var a: Array = SKY_KEYS[i]
+		var b: Array = SKY_KEYS[i + 1]
+		if p >= a[0] and p <= b[0]:
+			var t: float = 0.0 if b[0] == a[0] else (p - a[0]) / (b[0] - a[0])
+			return [p, a[1].lerp(b[1], t), a[2].lerp(b[2], t), a[3].lerp(b[3], t),
+				lerpf(a[4], b[4], t), lerpf(a[5], b[5], t)]
+	return SKY_KEYS[0]
+
+
+## Advances the 15-minute cycle and drives sky, sun, moon, ambient, fog.
+func _update_daylight(delta: float) -> void:
+	if world == null:
+		return
+	day_phase = wrapf(day_phase + delta / DAY_SECONDS, 0.0, 1.0)
+	var k := _sky_sample(day_phase)
+	var tint := _mood_tint
+
+	# Sun arc across the day, moon arc across the night.
+	var sun_dir := Vector3.UP
+	var sun_e := 0.0
+	if day_phase < DAY_FRAC:
+		var t := day_phase / DAY_FRAC
+		var elev := sin(t * PI) * 1.25
+		var az := lerpf(1.75, 4.55, t)
+		sun_dir = Vector3(cos(elev) * sin(az), sin(elev), cos(elev) * cos(az))
+		sun_e = k[4]
+	var moon_dir := Vector3.DOWN
+	var moon_up := 0.0
+	if day_phase >= DAY_FRAC:
+		var t2 := (day_phase - DAY_FRAC) / (1.0 - DAY_FRAC)
+		var elev2 := sin(t2 * PI) * 0.95
+		var az2 := lerpf(1.75, 4.55, t2)
+		moon_dir = Vector3(cos(elev2) * sin(az2), sin(elev2), cos(elev2) * cos(az2))
+		moon_up = clampf(sin(t2 * PI) * 3.0, 0.0, 1.0)
+
+	_sun.visible = sun_e > 0.02
+	if _sun.visible:
+		var up := Vector3.UP if absf(sun_dir.y) < 0.98 else Vector3(0, 0, 1)
+		_sun.basis = Basis.looking_at(-sun_dir, up)
+		_sun.light_color = k[3] * tint
+		_sun.light_energy = sun_e * _wx_sun_mult
+	_moon.visible = moon_up > 0.05 and _wx_moon > 0.3
+	if _moon.visible:
+		var up2 := Vector3.UP if absf(moon_dir.y) < 0.98 else Vector3(0, 0, 1)
+		_moon.basis = Basis.looking_at(-moon_dir, up2)
+		_moon.light_energy = 0.22 * moon_up * _wx_moon
+
+	# Underground, ambient dies away — caves are dark; lanterns matter.
+	var uf := 0.0
+	if player and terrain:
+		var depth := terrain.height_at(player.global_position.x, player.global_position.z) \
+			- player.global_position.y
+		uf = clampf((depth - 1.2) / 2.0, 0.0, 1.0)
+	var night_cloud_dim := 1.0
+	if day_phase >= DAY_FRAC and _wx_moon < 0.3:
+		night_cloud_dim = 0.55  # overcast, moonless nights are properly dark
+	_env.ambient_light_color = (k[2] * 0.55 + k[1] * 0.45) * tint
+	_env.ambient_light_energy = k[5] * _amb_mult * night_cloud_dim \
+		* lerpf(1.0, 0.07, uf) + 0.02
+	_env.fog_light_color = k[2] * tint * 0.8
+	_env.fog_density = _fog_base + _wx_fog_add \
+		+ (0.0004 if day_phase >= DAY_FRAC else 0.0)
+
+	var night_amt := 0.0
+	if day_phase >= DAY_FRAC:
+		night_amt = clampf(sin((day_phase - DAY_FRAC) / (1.0 - DAY_FRAC) * PI) * 2.0, 0.0, 1.0)
+	_sky_mat.set_shader_parameter("sun_dir", sun_dir)
+	_sky_mat.set_shader_parameter("moon_dir", moon_dir)
+	_sky_mat.set_shader_parameter("col_top", k[1] * tint)
+	_sky_mat.set_shader_parameter("col_horizon", k[2] * tint)
+	_sky_mat.set_shader_parameter("sun_col", k[3] * tint)
+	_sky_mat.set_shader_parameter("cloud_col",
+		(k[2] * 0.75 + Color(0.25, 0.25, 0.27)) * tint)
+	_sky_mat.set_shader_parameter("cloud_cover", _cloud_cover)
+	_sky_mat.set_shader_parameter("star_amt", night_amt * clampf(_wx_moon, 0.0, 1.0))
+	_sky_mat.set_shader_parameter("moon_bright", moon_up * _wx_moon)
 
 
 func _apply_weather(wrng: RandomNumberGenerator) -> void:
 	var w := Biomes.roll_weather(biome, wrng)
 	weather_id = w[0]
 	weather_name = w[1]
+	_wx_sun_mult = 1.0
+	_wx_fog_add = 0.0
+	_wx_moon = 1.0
+	_cloud_cover = 0.35
 	match weather_id:
 		"rain":
 			_weather_node = _precip(900, 1.4, Vector2(0.03, 0.34),
 				Color(0.62, 0.72, 0.88, 0.55), Vector3(0, -1, 0), 16.0, Vector3(0, -12, 0))
-			_env.fog_density += 0.0008
-			_sun.light_energy *= 0.85
+			_wx_fog_add = 0.0008
+			_wx_sun_mult = 0.85
+			_wx_moon = 0.15
+			_cloud_cover = 0.85
 		"snow":
 			_weather_node = _precip(550, 6.0, Vector2(0.07, 0.07),
 				Color(0.96, 0.97, 1.0, 0.9), Vector3(0, -1, 0), 2.0, Vector3(0, -1.5, 0))
+			_wx_moon = 0.25
+			_cloud_cover = 0.75
 		"fog":
-			_env.fog_density += 0.0055
-			_sun.light_energy *= 0.8
+			_wx_fog_add = 0.0055
+			_wx_sun_mult = 0.8
+			_wx_moon = 0.15
+			_cloud_cover = 0.9
 		"wind":
 			var a := wrng.randf_range(0.0, TAU)
 			_weather_node = _precip(520, 2.2, Vector2(0.42, 0.07), biome.debris,
 				Vector3(cos(a), -0.15, sin(a)), 22.0, Vector3(0, -2, 0))
-			_env.fog_density += 0.0015
-			_sun.light_energy *= 0.9
+			_wx_fog_add = 0.0015
+			_wx_sun_mult = 0.9
+			_cloud_cover = 0.5
 	if _water_mat:
 		var wind_amt := 0.15
 		if weather_id == "wind":
@@ -744,8 +930,9 @@ func _place_player(wrng: RandomNumberGenerator) -> void:
 func _assign_tools(trng: RandomNumberGenerator) -> void:
 	# Conditional gear: an item is only hidden when the world holds
 	# something to use it on — irons need nests, the rope needs a cavern
-	# well. Worlds carry 6-8 hidden items.
-	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "coffee"]
+	# well. Worlds carry 7-9 hidden items.
+	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "coffee",
+		"flashlight"]
 	for s in structures:
 		if s.kind == "nest":
 			ids.append("irons")
@@ -756,6 +943,12 @@ func _assign_tools(trng: RandomNumberGenerator) -> void:
 	while picks.size() < ids.size():
 		var i := trng.randi_range(0, structures.size() - 1)
 		if i in picks:
+			continue
+		# The flashlight is never buried in an underground node — you need
+		# it to reach those places, not the other way round.
+		if ids[picks.size()] == "flashlight" \
+				and structures[i].position.y < terrain.height_at(
+					structures[i].position.x, structures[i].position.z) - 1.5:
 			continue
 		picks.append(i)
 	for k in ids.size():
@@ -910,7 +1103,8 @@ func _setup_input() -> void:
 		["sprint", KEY_SHIFT], ["interact", KEY_E], ["spyglass", KEY_Z],
 		["cycle_spot", KEY_TAB], ["toggle_map", KEY_M], ["toggle_pad", KEY_N],
 		["feedback", KEY_F8], ["turn_left", KEY_LEFT], ["turn_right", KEY_RIGHT],
-		["crouch", KEY_X], ["sit", KEY_C], ["autorun", KEY_QUOTELEFT]]
+		["crouch", KEY_X], ["sit", KEY_C], ["autorun", KEY_QUOTELEFT],
+		["flashlight", KEY_F]]
 	for b in binds:
 		if InputMap.has_action(b[0]):
 			continue
@@ -928,14 +1122,19 @@ func _setup_input() -> void:
 func _setup_environment() -> void:
 	var we := WorldEnvironment.new()
 	_env = Environment.new()
-	_sky_mat = ProceduralSkyMaterial.new()
-	_sky_mat.ground_bottom_color = Color(0.12, 0.14, 0.12)
-	_sky_mat.ground_horizon_color = Color(0.55, 0.60, 0.58)
+	var sh := Shader.new()
+	sh.code = SKY_SHADER
+	_sky_mat = ShaderMaterial.new()
+	_sky_mat.shader = sh
 	var sky := Sky.new()
 	sky.sky_material = _sky_mat
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
-	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	# Ambient is driven by the day/night cycle directly (and dimmed
+	# underground), not sampled from the sky.
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_env.ambient_light_color = Color(0.7, 0.75, 0.8)
+	_env.ambient_light_energy = 1.0
 	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	_env.ssao_enabled = true
 	_env.fog_enabled = true
@@ -946,6 +1145,11 @@ func _setup_environment() -> void:
 	_sun.shadow_enabled = true
 	_sun.directional_shadow_max_distance = 260.0
 	add_child(_sun)
+	_moon = DirectionalLight3D.new()
+	_moon.light_color = Color(0.7, 0.78, 0.95)
+	_moon.shadow_enabled = false
+	_moon.visible = false
+	add_child(_moon)
 
 
 func _add_water() -> void:
@@ -1005,6 +1209,8 @@ func _shot_routine() -> void:
 	await get_tree().create_timer(0.6).timeout
 	get_viewport().get_texture().get_image().save_png(dir0.path_join("shot_title.png"))
 	start_daily()
+	day_phase = 0.3
+	_update_daylight(0.0)
 	var nearest: Interactable = null
 	var best := 1e9
 	for s in structures:
@@ -1014,7 +1220,8 @@ func _shot_routine() -> void:
 			nearest = s
 	player.set_target(nearest)
 	tools = {map = true, compass = false, spyglass = true,
-		pencil = true, notepad = true, irons = true, rope = true}
+		pencil = true, notepad = true, irons = true, rope = true,
+		flashlight = true}
 	has_coffee = true
 	hud.set_tools(tools)
 	for s in structures:
@@ -1033,6 +1240,19 @@ func _shot_routine() -> void:
 	if dir.is_empty():
 		dir = "user://"
 	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_player.png"))
+	# Sunset, then night with the flashlight sweeping.
+	day_phase = 0.635
+	_update_daylight(0.0)
+	await get_tree().create_timer(0.5).timeout
+	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_sunset.png"))
+	day_phase = 0.8
+	_update_daylight(0.0)
+	player.flashlight.visible = true
+	await get_tree().create_timer(0.5).timeout
+	get_viewport().get_texture().get_image().save_png(dir.path_join("shot_night.png"))
+	player.flashlight.visible = false
+	day_phase = 0.3
+	_update_daylight(0.0)
 	tools.compass = true
 	hud.set_tools(tools)
 	var aim_at: Interactable = nearest
@@ -1111,6 +1331,7 @@ func _shot_routine() -> void:
 			if s.display_name == "cave chest":
 				cave_chest = s
 		if cave_chest:
+			player.flashlight.visible = true
 			player.cam.make_current()
 			var other: Interactable = null
 			for s in structures:

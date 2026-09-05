@@ -42,6 +42,7 @@ var climbing := false
 var crouched := false
 var sitting := false
 var autorun := false
+var flashlight: SpotLight3D
 var _stamina_locked := false
 var _well_deep := false
 var _well_cool_ms := 0
@@ -51,6 +52,10 @@ var _last_walk_pos := Vector2.ZERO
 var _cshape: CollisionShape3D
 var _leg_l: MeshInstance3D
 var _leg_r: MeshInstance3D
+var _tassel: Node3D
+var _tassel_a := Vector2.ZERO
+var _tassel_v := Vector2.ZERO
+var _prev_vel := Vector3.ZERO
 var _lmb := false
 var _rmb := false
 var _dragging := false
@@ -86,6 +91,16 @@ func _init() -> void:
 	cam.far = 900.0
 	cam.fov = 72.0
 	arm.add_child(cam)
+	# Flashlight beam rides the camera so it points where you look.
+	flashlight = SpotLight3D.new()
+	flashlight.spot_range = 34.0
+	flashlight.spot_angle = 26.0
+	flashlight.light_energy = 3.0
+	flashlight.light_color = Color(1.0, 0.96, 0.85)
+	flashlight.shadow_enabled = true
+	flashlight.position = Vector3(0.25, -0.15, 0)
+	flashlight.visible = false
+	cam.add_child(flashlight)
 
 
 func _ready() -> void:
@@ -110,12 +125,48 @@ func _build_visual() -> void:
 	head.height = 0.34
 	head.material = skin
 	Util.mesh(body_vis, head, Vector3(0, 1.62, 0))
-	var hat := CylinderMesh.new()
-	hat.top_radius = 0.16
-	hat.bottom_radius = 0.19
-	hat.height = 0.1
-	hat.material = TexF.plain(Color(0.65, 0.2, 0.15))
-	Util.mesh(body_vis, hat, Vector3(0, 1.76, 0))
+	# A proper fez: tall tapered crimson felt with a swinging tassel.
+	var fez := CylinderMesh.new()
+	fez.top_radius = 0.115
+	fez.bottom_radius = 0.155
+	fez.height = 0.17
+	fez.material = TexF.plain(Color(0.72, 0.12, 0.16))
+	Util.mesh(body_vis, fez, Vector3(0, 1.8, 0))
+	var button := CylinderMesh.new()
+	button.top_radius = 0.03
+	button.bottom_radius = 0.03
+	button.height = 0.02
+	button.material = TexF.plain(Color(0.85, 0.7, 0.2))
+	Util.mesh(body_vis, button, Vector3(0, 1.89, 0))
+	_tassel = Node3D.new()
+	_tassel.position = Vector3(0, 1.89, 0)
+	_tassel.rotation.z = 0.5  # drapes over the brim at rest
+	body_vis.add_child(_tassel)
+	var cord := CylinderMesh.new()
+	cord.top_radius = 0.012
+	cord.bottom_radius = 0.012
+	cord.height = 0.17
+	cord.material = TexF.plain(Color(0.85, 0.7, 0.2))
+	Util.mesh(_tassel, cord, Vector3(0, -0.085, 0))
+	var knot := SphereMesh.new()
+	knot.radius = 0.038
+	knot.height = 0.076
+	knot.material = TexF.plain(Color(0.9, 0.75, 0.22))
+	Util.mesh(_tassel, knot, Vector3(0, -0.185, 0))
+	# The backpack (a seeker carries a lot of gear).
+	var packc := TexF.plain(Color(0.45, 0.33, 0.2))
+	var pack := BoxMesh.new()
+	pack.size = Vector3(0.34, 0.42, 0.16)
+	pack.material = packc
+	Util.mesh(body_vis, pack, Vector3(0, 1.06, -0.33))
+	var flap := BoxMesh.new()
+	flap.size = Vector3(0.35, 0.16, 0.18)
+	flap.material = TexF.plain(Color(0.36, 0.26, 0.16))
+	Util.mesh(body_vis, flap, Vector3(0, 1.24, -0.33))
+	var strap := BoxMesh.new()
+	strap.size = Vector3(0.36, 0.05, 0.17)
+	strap.material = TexF.plain(Color(0.3, 0.22, 0.13))
+	Util.mesh(body_vis, strap, Vector3(0, 1.0, -0.335))
 	var arm_m := CapsuleMesh.new()
 	arm_m.radius = 0.09
 	arm_m.height = 0.62
@@ -161,6 +212,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("autorun"):
 		autorun = not autorun
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("flashlight"):
+		if main and main.tools.flashlight:
+			flashlight.visible = not flashlight.visible
+		elif hud:
+			hud.toast("You don't have a flashlight.")
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseButton:
@@ -422,14 +480,20 @@ func _physics_process(delta: float) -> void:
 					velocity = Vector3(0, CLIMB_SPEED, 0)
 			elif is_on_floor():
 				climbing = false
-		elif iv.y < -0.1 and not _well_deep and wdxz.length() < 1.9 \
-				and global_position.y < wellc.rim_y + 0.5:
-			climbing = true
-			if global_position.y >= wellc.rim_y - 0.15:
-				velocity = Vector3(wdxz.x, 0, wdxz.y).normalized() * 3.0 + Vector3(0, 1.4, 0)
-			else:
-				velocity = Vector3(0, CLIMB_SPEED, 0) \
-					+ Vector3(wdxz.x, 0, wdxz.y).normalized() * 0.4
+		else:
+			# Entry works with W (climb over) or, when facing the well,
+			# with S — "climb down" is the natural instinct.
+			var fwd := Basis(Vector3.UP, facing) * Vector3(0, 0, -1)
+			var toward := Vector3(wdxz.x, 0, wdxz.y).normalized()
+			var wants_in: bool = iv.y < -0.1 \
+				or (iv.y > 0.1 and fwd.dot(toward) > 0.4)
+			if wants_in and not _well_deep and wdxz.length() < 2.2 \
+					and global_position.y < wellc.rim_y + 0.8:
+				climbing = true
+				if global_position.y >= wellc.rim_y - 0.15:
+					velocity = toward * 3.0 + Vector3(0, 1.4, 0)
+				else:
+					velocity = Vector3(0, CLIMB_SPEED, 0) + toward * 0.4
 
 	# Arrow keys: keyboard turning — character and camera swing together.
 	var turn := Input.get_axis("turn_right", "turn_left")
@@ -454,8 +518,9 @@ func _physics_process(delta: float) -> void:
 				hud.toast("Winded! Sprint needs a minute to recover.")
 	else:
 		_regen_delay -= delta
-		if _regen_delay <= 0.0:
-			stamina = minf(stamina + delta / STAMINA_REGEN * (2.5 if sitting else 1.0), 1.0)
+		# Sitting skips the regen pause entirely and refills fast.
+		if _regen_delay <= 0.0 or sitting:
+			stamina = minf(stamina + delta / STAMINA_REGEN * (5.0 if sitting else 1.0), 1.0)
 	if sitting and _stamina_locked:
 		# Resting shortens the Winded lockout: 1.5x extra recovery on top
 		# of real time (2.5x total).
@@ -508,6 +573,17 @@ func _physics_process(delta: float) -> void:
 
 	if not climbing:
 		body_vis.rotation.y = lerp_angle(body_vis.rotation.y, facing + PI, minf(1.0, 14.0 * delta))
+
+	# The fez tassel is a little damped pendulum driven by acceleration:
+	# it flops when you start, stop, turn, jump, or land.
+	var acc := (velocity - _prev_vel) / maxf(delta, 0.001)
+	_prev_vel = velocity
+	var la := body_vis.global_transform.basis.inverse() * Vector3(acc.x, acc.y * 0.4, acc.z)
+	_tassel_v += (Vector2(la.z, -la.x) * 0.09 - _tassel_a * 42.0 - _tassel_v * 4.5) * delta
+	_tassel_a = (_tassel_a + _tassel_v * delta).limit_length(0.95)
+	if _tassel:
+		_tassel.rotation.x = _tassel_a.x
+		_tassel.rotation.z = 0.5 + _tassel_a.y
 
 	# Camera swings back behind the character while moving (unless the
 	# player is holding a left-drag orbit).

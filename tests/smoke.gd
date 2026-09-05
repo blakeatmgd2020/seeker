@@ -42,10 +42,10 @@ func _tool_count(main) -> int:
 	return n
 
 
-## Items are conditional on world features: 6 base, +irons with nests,
+## Items are conditional on world features: 7 base, +irons with nests,
 ## +rope with a cavern well.
 func _expected_items(main) -> int:
-	var n := 6
+	var n := 7
 	for s in main.structures:
 		if s.kind == "nest":
 			n += 1
@@ -113,6 +113,9 @@ func _process(_delta: float) -> bool:
 			var gh: float = main.terrain.height_at(s.position.x, s.position.z)
 			if s.position.y > gh - 1.5:
 				fails.append("underground node '%s' not below terrain" % s.display_name)
+		if s.tool_id == "flashlight" \
+				and s.position.y < main.terrain.height_at(s.position.x, s.position.z) - 1.5:
+			fails.append("flashlight hidden in an underground node")
 	if main.terrain == null or main.terrain.water_y <= -50.0:
 		fails.append("terrain/water not built")
 	if main.menu == null:
@@ -125,7 +128,7 @@ func _process(_delta: float) -> bool:
 		if not s.tool_id.is_empty():
 			tool_ids.append(s.tool_id)
 	tool_ids.sort()
-	var expect := ["coffee", "compass", "map", "notepad", "pencil", "spyglass"]
+	var expect := ["coffee", "compass", "flashlight", "map", "notepad", "pencil", "spyglass"]
 	var has_nest := false
 	for s in main.structures:
 		has_nest = has_nest or s.kind == "nest"
@@ -323,6 +326,29 @@ func _process(_delta: float) -> bool:
 	main.hud.close_big_views()
 	main.hud.hide_banner()
 
+	# Day/night: the cycle advances, wraps, and drives the lights; the
+	# flashlight toggles once owned.
+	if not InputMap.has_action("flashlight"):
+		fails.append("flashlight input action missing")
+	if main.player.flashlight == null:
+		fails.append("flashlight light missing on player")
+	var p0: float = main.day_phase
+	main._update_daylight(30.0)
+	if absf(main.day_phase - wrapf(p0 + 30.0 / 900.0, 0.0, 1.0)) > 0.001:
+		fails.append("day phase did not advance correctly")
+	main.day_phase = 0.99
+	main._update_daylight(30.0)
+	if main.day_phase >= 1.0 or main.day_phase > 0.1:
+		fails.append("day phase did not wrap at 1.0")
+	main.day_phase = 0.85
+	main._update_daylight(0.01)
+	if main._sun.visible:
+		fails.append("sun still shining at midnight")
+	main.day_phase = 0.3
+	main._update_daylight(0.01)
+	if not main._sun.visible:
+		fails.append("sun missing at midday")
+
 	# Random mode: deterministic per seed.
 	main.start_random(12345)
 	if main.game_mode != "random" or main.structures.size() < 20:
@@ -341,8 +367,19 @@ func _process(_delta: float) -> bool:
 	var well_found := false
 	for sv in [11, 22, 33, 44, 55, 66, 77, 88, 5, 17, 29, 41]:
 		main.start_random(sv)
-		if not main.well_drops.is_empty():
+		if not main.well_drops.is_empty() and not well_found:
 			well_found = true
+			# Collecting the rope the real way must open the plank covers.
+			for s in main.structures:
+				if s.tool_id == "rope":
+					s.interact()
+					break
+			if not main.tools.rope or main.well_drops[0].cover.visible:
+				fails.append("collecting the rope did not open the well covers")
+		for s in main.structures:
+			if s.tool_id == "flashlight" \
+					and s.position.y < main.terrain.height_at(s.position.x, s.position.z) - 1.5:
+				fails.append("seed %d: flashlight hidden underground" % sv)
 		for s in main.structures:
 			if s.display_name in ["cave chest", "stashed crate", "buried urn", "cellar crate", "well cache"]:
 				var gh: float = main.terrain.height_at(s.position.x, s.position.z)
@@ -508,11 +545,13 @@ func _cave_test_tick(main) -> bool:
 		if crate == null:
 			continue
 		var village: Node3D = main.world.get_node("Village")
+		var bestd := 12.0
 		for ch in village.get_children():
-			if (String(ch.name).contains("Barn") or String(ch.name).contains("House")) \
-					and ch.global_position.distance_to(crate.global_position) < 12.0:
-				barn = ch
-				break
+			if String(ch.name).contains("Barn") or String(ch.name).contains("House"):
+				var dch: float = ch.global_position.distance_to(crate.global_position)
+				if dch < bestd:
+					bestd = dch
+					barn = ch
 		if barn:
 			break
 	if barn == null:
