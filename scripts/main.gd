@@ -465,20 +465,36 @@ func _build_world() -> void:
 		for attempt in 90:
 			var p: Vector2
 			var yaw := 0.0
+			var inward := Vector2.ZERO
 			var ridge: bool = attempt < 45
 			if ridge:
-				var a := wrng.randf_range(0.0, TAU)
-				p = Vector2(cos(a), sin(a)) * wrng.randf_range(188.0, 212.0)
-				p.x = clampf(p.x, -212.0, 212.0)
-				p.y = clampf(p.y, -212.0, 212.0)
-				yaw = atan2(-p.x, -p.y) + wrng.randf_range(-0.35, 0.35)
+				# The rim rises along the SQUARE border (Chebyshev distance,
+				# smoothstep 205→250), so the mine mouth is notched into the
+				# wall itself at edge depth 222-232, doorway facing inward.
+				var side := wrng.randi_range(0, 3)
+				var along := wrng.randf_range(-200.0, 200.0)
+				var dep := wrng.randf_range(222.0, 232.0)
+				match side:
+					0:
+						p = Vector2(dep, along)
+						inward = Vector2(-1, 0)
+					1:
+						p = Vector2(-dep, along)
+						inward = Vector2(1, 0)
+					2:
+						p = Vector2(along, dep)
+						inward = Vector2(0, -1)
+					_:
+						p = Vector2(along, -dep)
+						inward = Vector2(0, 1)
+				yaw = atan2(inward.x, inward.y) + wrng.randf_range(-0.3, 0.3)
 			else:
 				var a := wrng.randf_range(0.0, TAU)
 				var r := wrng.randf_range(60.0, 200.0)
 				p = Vector2(cos(a) * r, sin(a) * r)
 				yaw = wrng.randf_range(0.0, TAU)
-			if absf(p.x) > 218.0 or absf(p.y) > 218.0:
-				continue
+				if absf(p.x) > 218.0 or absf(p.y) > 218.0:
+					continue
 			if not _village_clear(p, 14.0):
 				continue
 			if terrain.height_at(p.x, p.y) < terrain.water_y + 2.0:
@@ -498,9 +514,15 @@ func _build_world() -> void:
 			cave_yaw = yaw
 			has_cave = true
 			# The flat patch must bury the whole chamber, which extends
-			# behind the mound (local -Z), so shift the patch that way.
+			# behind the mound (local -Z), so shift the patch that way. On
+			# ridge sites the notch is carved at the MOUTH's ground level so
+			# the approach stays walkable and the rear digs into the wall.
 			var back := Vector2(sin(cave_yaw), cos(cave_yaw)) * -3.0
-			terrain.add_flat_patch(p + back, 8.5, 12.5, terrain.height_at(p.x, p.y))
+			var floor_at := p
+			if ridge:
+				floor_at = p + inward * 6.0
+			terrain.add_flat_patch(p + back, 8.5, 12.5,
+				terrain.height_at(floor_at.x, floor_at.y))
 			# Open the terrain over the descending shaft.
 			terrain.add_hole_rect(p + Vector2(0.0, 0.35).rotated(-cave_yaw),
 				Vector2(1.3, 3.6), cave_yaw)
@@ -534,7 +556,10 @@ func _build_world() -> void:
 	for s in structures:
 		exclusions.append(Vector3(s.position.x, s.position.z, 6.0))
 	if has_cave:
-		exclusions.append(Vector3(cave_pos.x, cave_pos.y, 9.0))
+		# Cover the whole carved area, chamber roof included — no trees
+		# sprouting from the cave's back.
+		var cback := Vector2(sin(cave_yaw), cos(cave_yaw)) * -3.0
+		exclusions.append(Vector3(cave_pos.x + cback.x, cave_pos.y + cback.y, 13.0))
 	exclusions.append(Vector3(player.position.x, player.position.z, 6.0))
 	var tree_perches: Array = Vegetation.build(world, terrain, exclusions, wrng.randi(), biome)
 
