@@ -181,6 +181,9 @@ func _process(_delta: float) -> bool:
 	tool_s.interact()
 	if not main.tools[tid]:
 		fails.append("tool '%s' not collected on search" % tid)
+	if main.found_marks.size() != 1 or main.found_marks[0].id != tid \
+			or main.found_marks[0].noted:
+		fails.append("found_marks not recorded correctly on collect")
 	var uncollected := _tool_count(main)
 	if uncollected != _expected_items(main) - 1:
 		fails.append("expected %d unfound items after collecting 1, got %d" % [
@@ -358,6 +361,8 @@ func _process(_delta: float) -> bool:
 	main._update_daylight(0.01)
 	if main._sun.visible:
 		fails.append("sun still shining at midnight")
+	if main._sky_mat.get_shader_parameter("sun_strength") > 0.01:
+		fails.append("sun disc not extinguished at night")
 	main.day_phase = 0.3
 	main._update_daylight(0.01)
 	if not main._sun.visible:

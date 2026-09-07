@@ -46,10 +46,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r9 · 2026-09-05 11:45"
+const VERSION := "r10 · 2026-09-07 14:10"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r10 · 2026-09-07 14:10 — Spyglass only marks nodes it catches DEAD-ON (sweeping the scope no longer yellow-dots everything in sight). No ghost sun at night; scattered natural stars; bluer moon. Ice is properly slick. Pencil trail is dashed; searched X's are bigger and red. Item pickups ink their icon onto the map at the node (with pencil + surface in hand), and the recap shows where every item was found. The recap dot pings and glows for two seconds before it starts walking your path.",
 	"r9 · 2026-09-05 11:45 — EVERY well is enterable with the rope (no more sealed black-top wells). Houses have real window openings with transparent glass (upstairs too), and some hang a lit lantern by the door. Interior and lantern lights cast shadows — no more glow bleeding through walls. Underground darkness is near-total without a light source. Flashlight now shines from in front of the seeker (no self-shadow). Buildings can no longer overlap. Cairns topple instead of deflating. Enter also opens the Dev Note.",
 	"r8 · 2026-09-05 10:30 — DAY AND NIGHT: a 15-minute cycle (10 day, 5 night) with a real sun and moon, drifting clouds, stars, dawns and dusks; each seed starts at its own hour, and the daily mood survives as a color grade. Nights are dark but moonlit — overcast nights are properly black. Caves, cellars, and well caverns go genuinely dark. New findable: the FLASHLIGHT (F), never hidden underground. Also: fez with a physics tassel, backpack, chimneys with fireplaces on some houses, recap path traced by a moving dot, snappier sitting recovery, easier well entry (S works too).",
 	"r7 · 2026-09-04 18:40 — Wells fixed: open rims you can see down, plank covers until you own the rope (no more ropeless traps), and climbing out actually works. Cellars deeper with taller vaults; no bottom-step flicker. Cave exits walkable (no jump needed); caves can be tucked into the barrier ridges. Sprint decays to plain walking speed. W or mouse-run cancels autorun. Smooth mouse steering with the map open. Tighter top-right HUD. Esc menu: End current map reveals the recap. Recap report centered above a smaller map. Hollow stumps look hollow; firewood is smaller and often near fire pits.",
@@ -73,6 +74,7 @@ uniform vec3 cloud_col : source_color = vec3(1.0, 1.0, 1.0);
 uniform float cloud_cover = 0.35;
 uniform float star_amt = 0.0;
 uniform float moon_bright = 0.0;
+uniform float sun_strength = 1.0;
 
 float hash21(vec2 p) {
 	p = fract(p * vec2(123.34, 345.45));
@@ -107,15 +109,24 @@ void sky() {
 	} else {
 		col = mix(col_top, col_horizon, pow(1.0 - d.y, 2.0));
 		if (star_amt > 0.01) {
-			vec2 spp = d.xz / (d.y + 0.3) * 140.0;
-			float st = step(0.9985, hash21(floor(spp)));
-			col += vec3(st * star_amt * 0.8 * smoothstep(0.05, 0.3, d.y));
+			// Scattered round stars: each grid cell MAY hold one, jittered
+			// to a random offset with random brightness — no lattice look.
+			vec2 spp = d.xz / (d.y + 0.3) * 34.0;
+			vec2 cell = floor(spp);
+			float hs = hash21(cell);
+			if (hs > 0.78) {
+				vec2 off = vec2(hash21(cell + 19.7), hash21(cell + 47.3));
+				float sdist = length(fract(spp) - off);
+				float br = 0.3 + 0.7 * hash21(cell + 3.1);
+				col += vec3(star_amt * br * smoothstep(0.13, 0.015, sdist)
+					* smoothstep(0.05, 0.3, d.y));
+			}
 		}
 		float sd = dot(d, sun_dir);
-		col += sun_col * (smoothstep(0.999, 0.9996, sd) * 3.2
+		col += sun_col * sun_strength * (smoothstep(0.999, 0.9996, sd) * 3.2
 			+ pow(max(sd, 0.0), 64.0) * 0.22);
 		float md = dot(d, moon_dir);
-		col += vec3(0.88, 0.92, 1.0) * moon_bright
+		col += vec3(0.7, 0.82, 1.0) * moon_bright
 			* (smoothstep(0.9996, 0.99985, md) * 3.0 + pow(max(md, 0.0), 128.0) * 0.12);
 		vec2 cuv = d.xz / (d.y + 0.15) * 0.9 + vec2(TIME * 0.006, TIME * 0.0016);
 		float cm = smoothstep(1.05 - cloud_cover, 1.35 - cloud_cover, fbm(cuv))
@@ -173,6 +184,7 @@ var coffee_until_ms := 0
 var well_drops: Array = []
 var trail: Array[Vector2] = []
 var full_path: Array[Vector2] = []
+var found_marks: Array = []  ## {id, pos, noted} — where each item turned up
 var spotted: Array[Interactable] = []
 var spot_idx := 0
 var debug_biome := ""
@@ -598,6 +610,7 @@ func _build_world() -> void:
 	coffee_until_ms = 0
 	trail.clear()
 	full_path.clear()
+	found_marks.clear()
 	spotted.clear()
 	spot_idx = 0
 	hunt_won = false
@@ -861,6 +874,9 @@ func _update_daylight(delta: float) -> void:
 	_sky_mat.set_shader_parameter("cloud_cover", _cloud_cover)
 	_sky_mat.set_shader_parameter("star_amt", night_amt * clampf(_wx_moon, 0.0, 1.0))
 	_sky_mat.set_shader_parameter("moon_bright", moon_up * _wx_moon)
+	# The sun disc must actually LEAVE the sky at night (its direction
+	# uniform otherwise lingers and drew a faint ghost sun at the zenith).
+	_sky_mat.set_shader_parameter("sun_strength", clampf(sun_e, 0.0, 1.0))
 
 
 func _apply_weather(wrng: RandomNumberGenerator) -> void:
@@ -994,6 +1010,11 @@ func _collect_tool(s: Interactable) -> void:
 	s.tool_id = ""
 	feedback.tools_found.append(id)
 	s.spawn_tool_prop(id)
+	# Remember where it was found: inked onto the maps right away when the
+	# pencil and a surface are in hand, and shown on the recap regardless.
+	found_marks.append({id = id,
+		pos = Vector2(s.global_position.x, s.global_position.z),
+		noted = can_note_spots()})
 	if id == "coffee":
 		has_coffee = true
 		hud.toast("You found a cup of coffee — still warm!")

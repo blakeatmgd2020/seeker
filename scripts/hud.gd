@@ -192,6 +192,56 @@ class CoffeeIcon:
 		draw_arc(c + Vector2(2, -13), 3.0, PI * 1.1, PI * 2.1, 10, Color(1, 1, 1, 0.45), 1.5)
 
 
+## Draws an item badge (circle + glyph) on any CanvasItem at any size —
+## shared by the found-item chips, the maps, and the recap.
+static func draw_item_glyph(ci: CanvasItem, id: String, c: Vector2, r: float) -> void:
+	var k := r / 13.0
+	ci.draw_circle(c, r, Color(0.14, 0.12, 0.09, 0.92))
+	ci.draw_arc(c, r, 0.0, TAU, 24, Color(1.0, 0.82, 0.25), maxf(1.5 * k, 1.0))
+	match id:
+		"map":
+			ci.draw_rect(Rect2(c + Vector2(-6, -5) * k, Vector2(12, 10) * k), Color(0.85, 0.78, 0.6))
+			ci.draw_line(c + Vector2(-2, -5) * k, c + Vector2(-2, 5) * k, Color(0.52, 0.42, 0.3), 1.0)
+			ci.draw_line(c + Vector2(2, -5) * k, c + Vector2(2, 5) * k, Color(0.52, 0.42, 0.3), 1.0)
+		"compass":
+			ci.draw_arc(c, 6.5 * k, 0.0, TAU, 20, Color(0.85, 0.85, 0.9), 1.5 * k)
+			ci.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(0, -6) * k, c + Vector2(-2, 0) * k, c + Vector2(2, 0) * k]),
+				Color(0.9, 0.25, 0.2))
+			ci.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(0, 6) * k, c + Vector2(-2, 0) * k, c + Vector2(2, 0) * k]),
+				Color(0.9, 0.9, 0.95))
+		"spyglass":
+			ci.draw_line(c + Vector2(-6, 5) * k, c + Vector2(2, -3) * k, Color(0.5, 0.35, 0.22), 4.0 * k)
+			ci.draw_line(c + Vector2(2, -3) * k, c + Vector2(6, -7) * k, Color(0.75, 0.75, 0.8), 3.0 * k)
+		"pencil":
+			ci.draw_line(c + Vector2(-5, 5) * k, c + Vector2(3, -3) * k, Color(0.88, 0.72, 0.18), 3.0 * k)
+			ci.draw_line(c + Vector2(3, -3) * k, c + Vector2(6, -6) * k, Color(0.28, 0.2, 0.13), 3.0 * k)
+		"notepad":
+			ci.draw_rect(Rect2(c + Vector2(-5, -6) * k, Vector2(10, 12) * k), Color(0.93, 0.92, 0.86))
+			for ly in [-3.0, 0.0, 3.0]:
+				ci.draw_line(c + Vector2(-3, ly) * k, c + Vector2(3, ly) * k, Color(0.55, 0.55, 0.6), 1.0)
+		"irons":
+			for ix in [-3.5, 3.5]:
+				ci.draw_colored_polygon(PackedVector2Array([
+					c + Vector2(ix - 2, -5) * k, c + Vector2(ix + 2, -5) * k, c + Vector2(ix, 7) * k]),
+					Color(0.75, 0.75, 0.8))
+		"rope":
+			ci.draw_arc(c, 5.5 * k, 0.0, TAU, 20, Color(0.62, 0.45, 0.28), 3.0 * k)
+			ci.draw_arc(c, 2.0 * k, 0.0, TAU, 14, Color(0.45, 0.32, 0.2), 2.0 * k)
+		"flashlight":
+			ci.draw_rect(Rect2(c + Vector2(-7, -2) * k, Vector2(8, 4) * k), Color(0.4, 0.4, 0.46))
+			ci.draw_colored_polygon(PackedVector2Array([
+				c + Vector2(1, -3) * k, c + Vector2(1, 3) * k,
+				c + Vector2(8, 6) * k, c + Vector2(8, -6) * k]),
+				Color(1.0, 0.93, 0.5, 0.9))
+		"coffee":
+			ci.draw_rect(Rect2(c + Vector2(-5, -3) * k, Vector2(8, 7) * k), Color(0.93, 0.92, 0.88))
+			ci.draw_rect(Rect2(c + Vector2(-4, -2) * k, Vector2(6, 2) * k), Color(0.3, 0.17, 0.08))
+			ci.draw_arc(c + Vector2(4, 1) * k, 2.5 * k, -PI * 0.45, PI * 0.45, 10,
+				Color(0.93, 0.92, 0.88), 1.5 * k)
+
+
 ## A little circular badge with a hand-drawn glyph per item.
 class ItemIcon:
 	extends Control
@@ -203,47 +253,7 @@ class ItemIcon:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _draw() -> void:
-		var c := size * 0.5
-		var r := minf(size.x, size.y) * 0.5 - 1.0
-		draw_circle(c, r, Color(0.14, 0.12, 0.09, 0.92))
-		draw_arc(c, r, 0.0, TAU, 24, Color(1.0, 0.82, 0.25), 1.5)
-		match id:
-			"map":
-				draw_rect(Rect2(c + Vector2(-6, -5), Vector2(12, 10)), Color(0.85, 0.78, 0.6))
-				draw_line(c + Vector2(-2, -5), c + Vector2(-2, 5), Color(0.52, 0.42, 0.3), 1.0)
-				draw_line(c + Vector2(2, -5), c + Vector2(2, 5), Color(0.52, 0.42, 0.3), 1.0)
-			"compass":
-				draw_arc(c, 6.5, 0.0, TAU, 20, Color(0.85, 0.85, 0.9), 1.5)
-				draw_colored_polygon(PackedVector2Array([
-					c + Vector2(0, -6), c + Vector2(-2, 0), c + Vector2(2, 0)]),
-					Color(0.9, 0.25, 0.2))
-				draw_colored_polygon(PackedVector2Array([
-					c + Vector2(0, 6), c + Vector2(-2, 0), c + Vector2(2, 0)]),
-					Color(0.9, 0.9, 0.95))
-			"spyglass":
-				draw_line(c + Vector2(-6, 5), c + Vector2(2, -3), Color(0.5, 0.35, 0.22), 4.0)
-				draw_line(c + Vector2(2, -3), c + Vector2(6, -7), Color(0.75, 0.75, 0.8), 3.0)
-			"pencil":
-				draw_line(c + Vector2(-5, 5), c + Vector2(3, -3), Color(0.88, 0.72, 0.18), 3.0)
-				draw_line(c + Vector2(3, -3), c + Vector2(6, -6), Color(0.28, 0.2, 0.13), 3.0)
-			"notepad":
-				draw_rect(Rect2(c + Vector2(-5, -6), Vector2(10, 12)), Color(0.93, 0.92, 0.86))
-				for ly in [-3.0, 0.0, 3.0]:
-					draw_line(c + Vector2(-3, ly), c + Vector2(3, ly), Color(0.55, 0.55, 0.6), 1.0)
-			"irons":
-				for ix in [-3.5, 3.5]:
-					draw_colored_polygon(PackedVector2Array([
-						c + Vector2(ix - 2, -5), c + Vector2(ix + 2, -5), c + Vector2(ix, 7)]),
-						Color(0.75, 0.75, 0.8))
-			"rope":
-				draw_arc(c, 5.5, 0.0, TAU, 20, Color(0.62, 0.45, 0.28), 3.0)
-				draw_arc(c, 2.0, 0.0, TAU, 14, Color(0.45, 0.32, 0.2), 2.0)
-			"flashlight":
-				draw_rect(Rect2(c + Vector2(-7, -2), Vector2(8, 4)), Color(0.4, 0.4, 0.46))
-				draw_colored_polygon(PackedVector2Array([
-					c + Vector2(1, -3), c + Vector2(1, 3),
-					c + Vector2(8, 6), c + Vector2(8, -6)]),
-					Color(1.0, 0.93, 0.5, 0.9))
+		Hud.draw_item_glyph(self, id, size * 0.5, minf(size.x, size.y) * 0.5 - 1.0)
 
 
 func set_map_texture(tex: Texture2D) -> void:
@@ -319,8 +329,14 @@ class MiniOverlay:
 			for i in range(1, main.trail.size()):
 				var cur := xf * _to_px(main.trail[i])
 				if prev.distance_to(C) < lim and cur.distance_to(C) < lim:
-					draw_line(prev, cur, ink, 1.3)
+					draw_dashed_line(prev, cur, ink, 1.3, 4.0)
 				prev = cur
+		for fm in main.found_marks:
+			if not fm.noted:
+				continue
+			var fp2 := xf * _to_px(fm.pos)
+			if fp2.distance_to(C) < lim:
+				Hud.draw_item_glyph(self, fm.id, fp2, 6.0)
 		var sel: Interactable = main.selected_spot()
 		for s in main.structures:
 			if not is_instance_valid(s):
@@ -332,7 +348,7 @@ class MiniOverlay:
 				# The notepad records what you've logged — and crosses off
 				# every searched node you've noted.
 				if s.opened and s.noted:
-					_cross(p, 3.2, Color(0.42, 0.10, 0.07, 0.9))
+					_cross(p, 4.2, Color(0.8, 0.12, 0.1, 0.95))
 				elif s.spotted:
 					draw_circle(p, 3.2, Color(0.25, 0.65, 0.25))
 					if s == sel:
@@ -341,7 +357,7 @@ class MiniOverlay:
 			if not s.noted:
 				continue
 			if s.opened:
-				_cross(p, 3.2, Color(0.42, 0.10, 0.07, 0.9))
+				_cross(p, 4.2, Color(0.8, 0.12, 0.1, 0.95))
 			elif s.spotted:
 				draw_circle(p, 3.2, Color(0.3, 0.95, 0.35))
 				if s == sel:
@@ -482,29 +498,39 @@ class BigMap:
 			for p in main.full_path:
 				fp.append(_to_px(p))
 			draw_polyline(fp, Color(0.2, 0.35, 0.72, 0.9), 2.5)
-			# A green dot walks the whole route, end to end, every 30 s.
+			# The green dot pings and glows at the start for 2 s, then walks
+			# the whole route end to end over 30 s, and repeats.
 			var total_len := 0.0
 			for i in range(1, fp.size()):
 				total_len += fp[i - 1].distance_to(fp[i])
 			if total_len > 1.0:
-				var want := fmod(_recap_t, 30.0) / 30.0 * total_len
-				var acc2 := 0.0
-				var dot_p := fp[0]
-				for i in range(1, fp.size()):
-					var seg := fp[i - 1].distance_to(fp[i])
-					if acc2 + seg >= want:
-						dot_p = fp[i - 1].lerp(fp[i], (want - acc2) / maxf(seg, 0.001))
-						break
-					acc2 += seg
-					dot_p = fp[i]
-				draw_circle(dot_p, 5.0, Color(0.2, 0.95, 0.35))
-				draw_arc(dot_p, 8.0, 0.0, TAU, 18, Color(0.2, 0.95, 0.35, 0.55), 1.6)
+				var green := Color(0.2, 0.95, 0.35)
+				var ph := fmod(_recap_t, 32.0)
+				if ph < 2.0:
+					var pulse := 0.5 + 0.5 * sin(ph * 10.0)
+					draw_circle(fp[0], 5.0 + pulse * 2.5, green)
+					var ringt := fmod(ph, 0.8) / 0.8
+					draw_arc(fp[0], 7.0 + ringt * 18.0, 0.0, TAU, 24,
+						Color(0.2, 0.95, 0.35, 0.75 * (1.0 - ringt)), 2.2)
+				else:
+					var want := (ph - 2.0) / 30.0 * total_len
+					var acc2 := 0.0
+					var dot_p := fp[0]
+					for i in range(1, fp.size()):
+						var seg := fp[i - 1].distance_to(fp[i])
+						if acc2 + seg >= want:
+							dot_p = fp[i - 1].lerp(fp[i], (want - acc2) / maxf(seg, 0.001))
+							break
+						acc2 += seg
+						dot_p = fp[i]
+					draw_circle(dot_p, 5.0, green)
+					draw_arc(dot_p, 8.0, 0.0, TAU, 18, Color(0.2, 0.95, 0.35, 0.55), 1.6)
 		if main.tools.pencil or recap:
 			if main.trail.size() > 1:
-				var pts := PackedVector2Array()
-				for p in main.trail:
-					pts.append(_to_px(p))
-				draw_polyline(pts, Color(0.45, 0.12, 0.08, 0.85), 2.0)
+				var ink := Color(0.45, 0.12, 0.08, 0.85)
+				for i in range(1, main.trail.size()):
+					draw_dashed_line(_to_px(main.trail[i - 1]),
+						_to_px(main.trail[i]), ink, 2.0, 5.0)
 			var sel: Interactable = main.selected_spot()
 			for s in main.structures:
 				if not is_instance_valid(s):
@@ -512,7 +538,7 @@ class BigMap:
 				var p := _to_px(Vector2(s.global_position.x, s.global_position.z))
 				if paper:
 					if s.opened and s.noted:
-						_cross(p, 5.0, Color(0.42, 0.10, 0.07, 0.9))
+						_cross(p, 6.5, Color(0.8, 0.12, 0.1, 0.95))
 					elif s.spotted:
 						draw_circle(p, 5.0, Color(0.25, 0.65, 0.25))
 						if s == sel:
@@ -521,13 +547,18 @@ class BigMap:
 				if not (s.noted or recap):
 					continue
 				if s.opened:
-					_cross(p, 5.0, Color(0.42, 0.10, 0.07, 0.9))
+					_cross(p, 6.5, Color(0.8, 0.12, 0.1, 0.95))
 				elif s.spotted:
 					draw_circle(p, 5.0, Color(0.3, 0.95, 0.35))
 					if s == sel:
 						draw_arc(p, 9.0, 0.0, TAU, 20, Color(0.3, 0.95, 0.35), 2.0)
 				else:
 					draw_circle(p, 4.5, Color(1.0, 0.82, 0.25))
+			# Item badges where gear was picked up: inked ones during the
+			# hunt, everything on the recap.
+			for fm in main.found_marks:
+				if fm.noted or recap:
+					Hud.draw_item_glyph(self, fm.id, _to_px(fm.pos), 9.0)
 		draw_set_transform_matrix(Transform2D())
 		if main.player:
 			var mark_col := Color(0.35, 0.3, 0.25) if paper else Color.WHITE

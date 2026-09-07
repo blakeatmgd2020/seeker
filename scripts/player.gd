@@ -559,7 +559,7 @@ func _physics_process(delta: float) -> void:
 		# Frozen ponds barely grip: acceleration and braking crawl, so
 		# momentum carries you sliding across the ice.
 		var icy: bool = is_on_floor() and main != null and main.on_ice(global_position)
-		var accel := 1.6 if icy else 10.0
+		var accel := 0.85 if icy else 10.0
 		velocity.x = lerpf(velocity.x, dir.x * sp, minf(1.0, accel * delta))
 		velocity.z = lerpf(velocity.z, dir.z * sp, minf(1.0, accel * delta))
 	move_and_slide()
@@ -695,14 +695,15 @@ func _update_discovery(spy: bool) -> void:
 				cam.global_position, p3, 5, ex)
 			if space.intersect_ray(q):
 				continue
-			s.seen = true
-			if main.can_note_spots():
-				s.noted = true
-			# Logging a spot requires actually aiming the scope at it.
+			# Marking anything requires actually aiming the scope at it —
+			# merely having a node in the lens shows its label, nothing more.
 			var aim := (p3 - cam.global_position).normalized()
 			var centered := (-cam.global_basis.z).dot(aim) > cos(deg_to_rad(SPY_AIM_DEG))
-			if centered and main.can_note_spots():
-				main.add_spot(s)
+			if centered:
+				s.seen = true
+				if main.can_note_spots():
+					s.noted = true
+					main.add_spot(s)
 			spots.append({pos = p3, centered = centered,
 				text = "%s · %d m" % [s.display_name, int(d)]})
 	if hud:
