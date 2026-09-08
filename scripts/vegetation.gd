@@ -29,7 +29,16 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 	canopies.collision_mask = 0
 	root.add_child(canopies)
 
-	var v: Dictionary = biome.veg
+	# A lusher world: every biome carries noticeably more growth (trees
+	# +45%, ground decor +70%, small rocks +30%).
+	var v: Dictionary = biome.veg.duplicate()
+	for k in ["pine", "oak", "autumn_oak", "snow_pine", "bare", "dead", "saguaro"]:
+		v[k] = int(v[k] * 1.45)
+	for k in ["bush", "autumn_bush", "dry_bush", "barrel_cactus", "mushrooms",
+			"leaf_litter", "snow_tufts", "tumbleweed", "flowers"]:
+		v[k] = int(v[k] * 1.7)
+	if v.has("rocks"):
+		v.rocks = int(v.rocks * 1.3)
 	# Trees: [mesh, count, trunk radius, has foliage canopy]
 	var tree_sets: Array = []
 	if v.pine > 0:

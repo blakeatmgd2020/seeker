@@ -439,7 +439,7 @@ static func _smoke(b: Node3D, pos: Vector3) -> void:
 	var qm := QuadMesh.new()
 	qm.size = Vector2(0.55, 0.55)
 	var smat := StandardMaterial3D.new()
-	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	# Lit so chimney smoke fades into the dark at night.
 	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	smat.vertex_color_use_as_albedo = true
 	smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED

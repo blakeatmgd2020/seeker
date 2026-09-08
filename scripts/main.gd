@@ -46,10 +46,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r10 · 2026-09-07 14:10"
+const VERSION := "r11 · 2026-09-07 19:30"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r11 · 2026-09-07 19:30 — Environment epic, phase 1: natural ground blending (multi-scale patches with ragged edges, drier rises, lush hollows, grass hue mottling) and a lusher world (trees +45%, ground cover +70%). Stars form constellations — clustered knots, voids, and a few bright anchors. Smoke is lit, so it fades into the night instead of glowing. Well exits fixed for good: you climb clear above the rim stones before hopping out. Coming next: six-plus new biomes, rivers and shoreline borders, then irregular maps ringed by predator territory.",
 	"r10 · 2026-09-07 14:10 — Spyglass only marks nodes it catches DEAD-ON (sweeping the scope no longer yellow-dots everything in sight). No ghost sun at night; scattered natural stars; bluer moon. Ice is properly slick. Pencil trail is dashed; searched X's are bigger and red. Item pickups ink their icon onto the map at the node (with pencil + surface in hand), and the recap shows where every item was found. The recap dot pings and glows for two seconds before it starts walking your path.",
 	"r9 · 2026-09-05 11:45 — EVERY well is enterable with the rope (no more sealed black-top wells). Houses have real window openings with transparent glass (upstairs too), and some hang a lit lantern by the door. Interior and lantern lights cast shadows — no more glow bleeding through walls. Underground darkness is near-total without a light source. Flashlight now shines from in front of the seeker (no self-shadow). Buildings can no longer overlap. Cairns topple instead of deflating. Enter also opens the Dev Note.",
 	"r8 · 2026-09-05 10:30 — DAY AND NIGHT: a 15-minute cycle (10 day, 5 night) with a real sun and moon, drifting clouds, stars, dawns and dusks; each seed starts at its own hour, and the daily mood survives as a color grade. Nights are dark but moonlit — overcast nights are properly black. Caves, cellars, and well caverns go genuinely dark. New findable: the FLASHLIGHT (F), never hidden underground. Also: fez with a physics tassel, backpack, chimneys with fireplaces on some houses, recap path traced by a moving dot, snappier sitting recovery, easier well entry (S works too).",
@@ -109,15 +110,18 @@ void sky() {
 	} else {
 		col = mix(col_top, col_horizon, pow(1.0 - d.y, 2.0));
 		if (star_amt > 0.01) {
-			// Scattered round stars: each grid cell MAY hold one, jittered
-			// to a random offset with random brightness — no lattice look.
+			// Constellations: a slow clumping field gates where stars live,
+			// so the sky has dense knots, sparse voids, and a few bright
+			// anchor stars (cubed brightness keeps most of them faint).
 			vec2 spp = d.xz / (d.y + 0.3) * 34.0;
 			vec2 cell = floor(spp);
+			float clump = vnoise(cell * 0.16);
 			float hs = hash21(cell);
-			if (hs > 0.78) {
+			if (hs > mix(0.965, 0.78, clump * clump)) {
 				vec2 off = vec2(hash21(cell + 19.7), hash21(cell + 47.3));
 				float sdist = length(fract(spp) - off);
-				float br = 0.3 + 0.7 * hash21(cell + 3.1);
+				float hb = hash21(cell + 3.1);
+				float br = 0.2 + 1.1 * hb * hb * hb;
 				col += vec3(star_amt * br * smoothstep(0.13, 0.015, sdist)
 					* smoothstep(0.05, 0.3, d.y));
 			}

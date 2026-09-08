@@ -375,7 +375,8 @@ static func _campfire(s: Interactable) -> void:
 	var qm := QuadMesh.new()
 	qm.size = Vector2(0.55, 0.55)
 	var smat := StandardMaterial3D.new()
-	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	# Lit (not unshaded) so smoke darkens with the night instead of
+	# glowing white against a black sky.
 	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	smat.vertex_color_use_as_albedo = true
 	smat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED

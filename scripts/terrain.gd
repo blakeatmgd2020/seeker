@@ -28,15 +28,26 @@ void vertex() {
 
 void fragment() {
 	vec2 uv = wpos.xz * 0.32;
-	float mask = texture(mask_tex, wpos.xz * 0.011).r;
+	// Multi-scale ground mask: broad sweeps, mid patches, and fine grain
+	// combine so bare ground comes in varied sizes with ragged edges —
+	// no more uniform polka-dot patches.
+	float m1 = texture(mask_tex, wpos.xz * 0.011).r;
+	float m2 = texture(mask_tex, wpos.xz * 0.0031 + vec2(37.7, 11.3)).r;
+	float m3 = texture(mask_tex, wpos.xz * 0.043 + vec2(91.1, 53.9)).r;
+	float mask = m1 * 0.5 + m2 * 0.35 + m3 * 0.15;
 	vec3 g = mix(texture(grass_tex, uv).rgb,
 		texture(grass_tex, uv * 0.13 + vec2(13.7, 7.3)).rgb, 0.5);
+	// Large-scale hue mottling: lusher hollows, sun-dried rises.
+	g *= mix(vec3(0.9, 1.02, 0.9), vec3(1.08, 1.0, 0.85), m2);
 	vec3 d = mix(texture(dirt_tex, uv * 0.7).rgb,
 		texture(dirt_tex, uv * 0.11 + vec2(4.2, 9.1)).rgb, 0.45);
 	vec3 r = mix(texture(rock_tex, uv * 0.4).rgb, texture(rock_tex, uv * 0.05).rgb, 0.5);
 	float slope = clamp(1.0 - wny, 0.0, 1.0);
-	float rock_w = smoothstep(0.30, 0.45, slope);
-	float dirt_w = smoothstep(0.58, 0.72, mask) * (1.0 - rock_w);
+	float rock_w = smoothstep(0.30, 0.45, slope + (m3 - 0.5) * 0.09);
+	// Ground dries out with elevation and on slopes; stays lush low down.
+	float dry = smoothstep(water_y + 3.0, water_y + 24.0, wpos.y);
+	float th = 0.62 - dry * 0.1 - slope * 0.28;
+	float dirt_w = smoothstep(th, th + 0.15 + m3 * 0.1, mask) * (1.0 - rock_w);
 	float shore = smoothstep(water_y + 2.2, water_y + 0.7, wpos.y);
 	float plaza = 0.0;
 	for (int i = 0; i < plaza_count; i++) {

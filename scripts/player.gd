@@ -471,11 +471,14 @@ func _physics_process(delta: float) -> void:
 			if global_position.y < wellc.rim_y - 2.0:
 				_well_deep = true
 			if iv.y < -0.1 and _well_deep:
-				if global_position.y >= wellc.rim_y - 0.15:
-					# Crest out — and go deaf to the well for a moment so
-					# the entry logic can't snatch us straight back in.
+				if global_position.y >= wellc.rim_y + 0.45:
+					# Only crest once we're clearly ABOVE the rim stones —
+					# hopping at stone height slammed into them from some
+					# facings and dropped the climber all the way back down.
+					# Then go deaf to the well briefly so the entry logic
+					# can't snatch us straight back in.
 					var outd := Basis(Vector3.UP, facing) * Vector3(0, 0, -1)
-					velocity = Vector3(outd.x, 0, outd.z).normalized() * 3.0 + Vector3(0, 2.2, 0)
+					velocity = Vector3(outd.x, 0, outd.z).normalized() * 3.0 + Vector3(0, 1.2, 0)
 					_well_deep = false
 					_well_cool_ms = Time.get_ticks_msec() + 900
 				else:
