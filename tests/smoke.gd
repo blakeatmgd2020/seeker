@@ -365,8 +365,20 @@ func _process(_delta: float) -> bool:
 		fails.append("sun disc not extinguished at night")
 	main.day_phase = 0.3
 	main._update_daylight(0.01)
-	if not main._sun.visible:
+	if not main._sun.visible and not main.biome.get("underground", false):
 		fails.append("sun missing at midday")
+	# The Undervault must be sunless at any hour, torchlit instead.
+	main.debug_biome = "cavern"
+	main.load_day(0)
+	main.day_phase = 0.3
+	main._update_daylight(0.01)
+	if main._sun.visible or main._moon.visible:
+		fails.append("cavern biome has celestial bodies")
+	if main.world.get_node_or_null("Torches") == null \
+			or main.world.get_node("Torches").get_child_count() < 10:
+		fails.append("cavern world not torchlit")
+	main.debug_biome = ""
+	main.load_day(0)
 
 	# Random mode: deterministic per seed.
 	main.start_random(12345)
@@ -655,7 +667,7 @@ func _well_test_tick(main) -> bool:
 
 func _finish(fails: Array[String]) -> bool:
 	if fails.is_empty():
-		print("SMOKE PASS (modes, determinism, 4 biomes, 8 items, nests, win+recap, walk-ins incl. well, feedback OK)")
+		print("SMOKE PASS (modes, determinism, 11 biomes, conditional items, nests, win+recap, walk-ins incl. well, feedback OK)")
 		quit(0)
 	else:
 		for f in fails:

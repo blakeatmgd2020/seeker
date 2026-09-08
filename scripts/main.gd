@@ -46,10 +46,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r11 · 2026-09-07 19:30"
+const VERSION := "r12 · 2026-09-07 20:45"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r12 · 2026-09-07 20:45 — Environment epic, phase 2: SEVEN new biomes for eleven total. Craghold Peaks (towering elevation), Greenreach Riverlands (lush and waterlogged), THE UNDERVAULT (a subterranean world — no sky, torchlit dark, the flashlight is king), Blackwater Fen (dead trees over black water), Cinderwaste (basalt, ashfall weather), Saltwind Dunes (pale sand, sea gales), and Mistfell Moor (heather, standing stones, rolling mist). Each rolls its own weather, moods, flora, hiding places, and architecture.",
 	"r11 · 2026-09-07 19:30 — Environment epic, phase 1: natural ground blending (multi-scale patches with ragged edges, drier rises, lush hollows, grass hue mottling) and a lusher world (trees +45%, ground cover +70%). Stars form constellations — clustered knots, voids, and a few bright anchors. Smoke is lit, so it fades into the night instead of glowing. Well exits fixed for good: you climb clear above the rim stones before hopping out. Coming next: six-plus new biomes, rivers and shoreline borders, then irregular maps ringed by predator territory.",
 	"r10 · 2026-09-07 14:10 — Spyglass only marks nodes it catches DEAD-ON (sweeping the scope no longer yellow-dots everything in sight). No ghost sun at night; scattered natural stars; bluer moon. Ice is properly slick. Pencil trail is dashed; searched X's are bigger and red. Item pickups ink their icon onto the map at the node (with pencil + surface in hand), and the recap shows where every item was found. The recap dot pings and glows for two seconds before it starts walking your path.",
 	"r9 · 2026-09-05 11:45 — EVERY well is enterable with the rope (no more sealed black-top wells). Houses have real window openings with transparent glass (upstairs too), and some hang a lit lantern by the door. Interior and lantern lights cast shadows — no more glow bleeding through walls. Underground darkness is near-total without a light source. Flashlight now shines from in front of the seeker (no self-shadow). Buildings can no longer overlap. Cairns topple instead of deflating. Enter also opens the Dev Note.",
@@ -578,6 +579,8 @@ func _build_world() -> void:
 		exclusions.append(Vector3(cave_pos.x + cback.x, cave_pos.y + cback.y, 13.0))
 	exclusions.append(Vector3(player.position.x, player.position.z, 6.0))
 	var tree_perches: Array = Vegetation.build(world, terrain, exclusions, wrng.randi(), biome)
+	if biome.get("underground", false):
+		_place_torches(wrng)
 
 	# Great trees / spires become climbable (with the irons); building
 	# ladders climb free. Cavern wells descend with the rope.
@@ -657,7 +660,7 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 		fi += 1
 		bag.append({kind = entry[0], display = entry[1]})
 	if has_nests:
-		var nest_name := "spire nest" if biome.id == "desert" else "bird nest"
+		var nest_name := "spire nest" if biome.id in ["desert", "cavern"] else "bird nest"
 		bag.append({kind = "nest", display = nest_name})
 		bag.append({kind = "nest", display = nest_name})
 
@@ -810,6 +813,22 @@ func _update_daylight(delta: float) -> void:
 	if world == null:
 		return
 	day_phase = wrapf(day_phase + delta / DAY_SECONDS, 0.0, 1.0)
+	if not biome.is_empty() and biome.get("underground", false):
+		# The Undervault: no sky, no sun, no time of day — a black cavern
+		# void overhead. Torches, glow, and the flashlight are everything.
+		_sun.visible = false
+		_moon.visible = false
+		_env.ambient_light_color = Color(0.5, 0.55, 0.65) * _mood_tint
+		_env.ambient_light_energy = 0.055 * _amb_mult
+		_env.fog_light_color = Color(0.02, 0.02, 0.03)
+		_env.fog_density = _fog_base + _wx_fog_add
+		_sky_mat.set_shader_parameter("col_top", Color(0.008, 0.008, 0.012))
+		_sky_mat.set_shader_parameter("col_horizon", Color(0.02, 0.022, 0.03))
+		_sky_mat.set_shader_parameter("sun_strength", 0.0)
+		_sky_mat.set_shader_parameter("moon_bright", 0.0)
+		_sky_mat.set_shader_parameter("star_amt", 0.0)
+		_sky_mat.set_shader_parameter("cloud_cover", 0.0)
+		return
 	var k := _sky_sample(day_phase)
 	var tint := _mood_tint
 
@@ -900,8 +919,10 @@ func _apply_weather(wrng: RandomNumberGenerator) -> void:
 			_wx_moon = 0.15
 			_cloud_cover = 0.85
 		"snow":
+			# Ashlands recolor the flakes into grey ashfall.
 			_weather_node = _precip(550, 6.0, Vector2(0.07, 0.07),
-				Color(0.96, 0.97, 1.0, 0.9), Vector3(0, -1, 0), 2.0, Vector3(0, -1.5, 0))
+				biome.get("snow_color", Color(0.96, 0.97, 1.0, 0.9)),
+				Vector3(0, -1, 0), 2.0, Vector3(0, -1.5, 0))
 			_wx_moon = 0.25
 			_cloud_cover = 0.75
 		"fog":
@@ -952,6 +973,51 @@ func _precip(amount: int, life: float, size: Vector2, color: Color, dir: Vector3
 	p.position = Vector3(0, 12, 0)
 	player.add_child(p)
 	return p
+
+
+## Subterranean worlds are torchlit: scattered standing torches make
+## islands of warm light in the permanent dark.
+func _place_torches(wrng: RandomNumberGenerator) -> void:
+	var root := Node3D.new()
+	root.name = "Torches"
+	world.add_child(root)
+	var pts: Array[Vector2] = []
+	for i in 400:
+		if pts.size() >= 26:
+			break
+		var p := Vector2(wrng.randf_range(-225.0, 225.0), wrng.randf_range(-225.0, 225.0))
+		if terrain.height_at(p.x, p.y) < terrain.water_y + 1.0:
+			continue
+		if not _village_clear(p, 4.0):
+			continue
+		var ok := true
+		for q in pts:
+			if p.distance_to(q) < 30.0:
+				ok = false
+				break
+		if not ok:
+			continue
+		pts.append(p)
+		var t := Node3D.new()
+		root.add_child(t)
+		t.position = Vector3(p.x, terrain.height_at(p.x, p.y), p.y)
+		Util.cyl(t, 0.05, 0.07, 1.7, Vector3(0, 0.85, 0), TexF.mat("darkwood"), Vector3.ZERO, 6)
+		var fm := StandardMaterial3D.new()
+		fm.albedo_color = Color(1.0, 0.6, 0.15)
+		fm.emission_enabled = true
+		fm.emission = Color(1.0, 0.55, 0.1)
+		fm.emission_energy_multiplier = 2.2
+		var flame := SphereMesh.new()
+		flame.radius = 0.09
+		flame.height = 0.22
+		flame.material = fm
+		Util.mesh(t, flame, Vector3(0, 1.78, 0))
+		var tl := OmniLight3D.new()
+		tl.position = Vector3(0, 1.8, 0)
+		tl.light_color = Color(1.0, 0.72, 0.35)
+		tl.omni_range = 11.0
+		tl.light_energy = 1.5
+		t.add_child(tl)
 
 
 func _place_player(wrng: RandomNumberGenerator) -> void:
@@ -1229,6 +1295,8 @@ func _add_water() -> void:
 		var col := Color(0.12, 0.34, 0.44, 0.62)
 		if biome.terrain.water_mat == "oasis":
 			col = Color(0.14, 0.42, 0.40, 0.66)
+		elif biome.terrain.water_mat == "swamp":
+			col = Color(0.07, 0.12, 0.08, 0.74)
 		_water_mat.set_shader_parameter("base_col", col)
 		pm.material = _water_mat
 	var mi := MeshInstance3D.new()

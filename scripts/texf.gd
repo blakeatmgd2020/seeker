@@ -128,6 +128,10 @@ static func mat(key: String) -> Material:
 			m = _std(noise_tex("leavesdark", 116, 0.5, [0.0, 0.5, 1.0],
 				[Color(0.08, 0.22, 0.10), Color(0.14, 0.30, 0.14), Color(0.18, 0.35, 0.16)]),
 				Color.WHITE, Vector3(2, 2, 1))
+		"heather":
+			m = _std(noise_tex("heather", 141, 0.5, [0.0, 0.5, 1.0],
+				[Color(0.36, 0.22, 0.42), Color(0.50, 0.30, 0.55), Color(0.44, 0.34, 0.30)]),
+				Color.WHITE, Vector3(2, 2, 1))
 		"straw":
 			m = _std(noise_tex("straw", 117, 0.45, [0.0, 0.5, 1.0],
 				[Color(0.62, 0.48, 0.20), Color(0.78, 0.64, 0.30), Color(0.70, 0.55, 0.24)]),

@@ -35,8 +35,9 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 	for k in ["pine", "oak", "autumn_oak", "snow_pine", "bare", "dead", "saguaro"]:
 		v[k] = int(v[k] * 1.45)
 	for k in ["bush", "autumn_bush", "dry_bush", "barrel_cactus", "mushrooms",
-			"leaf_litter", "snow_tufts", "tumbleweed", "flowers"]:
-		v[k] = int(v[k] * 1.7)
+			"leaf_litter", "snow_tufts", "tumbleweed", "flowers", "heather"]:
+		if v.has(k):
+			v[k] = int(v[k] * 1.7)
 	if v.has("rocks"):
 		v.rocks = int(v.rocks * 1.3)
 	# Trees: [mesh, count, trunk radius, has foliage canopy]
@@ -100,6 +101,7 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 	_scatter_decor(root, terrain, exclusions, rng, fnoise, _bush_mesh("leaves"), v.bush, 40.0, true)
 	_scatter_decor(root, terrain, exclusions, rng, fnoise, _bush_mesh("leaves_autumn1"), v.autumn_bush, 40.0, true)
 	_scatter_decor(root, terrain, exclusions, rng, fnoise, _bush_mesh("dry_bush"), v.dry_bush, 40.0, false)
+	_scatter_decor(root, terrain, exclusions, rng, fnoise, _bush_mesh("heather"), v.get("heather", 0), 40.0, false)
 	_scatter_decor(root, terrain, exclusions, rng, fnoise, _barrel_cactus_mesh(), v.barrel_cactus, 45.0, false)
 	_scatter_decor(root, terrain, exclusions, rng, fnoise, _mushroom_mesh(), v.mushrooms, 45.0, true)
 	_scatter_decor(root, terrain, exclusions, rng, fnoise, _litter_mesh(), v.leaf_litter, 35.0, false)

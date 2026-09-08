@@ -415,7 +415,7 @@ static func _scarecrow(s: Interactable) -> void:
 ## the tree/spire hangs below it in local space.
 static func _nest(s: Interactable, biome_id: String) -> void:
 	var h := NEST_HEIGHT
-	if biome_id == "desert":
+	if biome_id in ["desert", "cavern"]:
 		Util.cyl(s, 0.9, 1.7, h, Vector3(0, -h * 0.5, 0), TexF.mat("stone"), Vector3.ZERO, 10)
 		Util.cyl(s, 1.4, 1.9, 2.4, Vector3(0, -h + 1.2, 0), TexF.mat("stone"), Vector3.ZERO, 9)
 	else:
