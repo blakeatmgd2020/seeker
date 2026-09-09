@@ -18,6 +18,9 @@ uniform sampler2D nrm_tex : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform float water_y = -10.0;
 uniform int plaza_count = 0;
 uniform vec2 plazas[8];
+uniform vec3 grass_tint = vec3(1.0);
+uniform vec3 dirt_tint = vec3(1.0);
+uniform vec3 rock_tint = vec3(1.0);
 varying vec3 wpos;
 varying float wny;
 
@@ -36,12 +39,13 @@ void fragment() {
 	float m3 = texture(mask_tex, wpos.xz * 0.043 + vec2(91.1, 53.9)).r;
 	float mask = m1 * 0.5 + m2 * 0.35 + m3 * 0.15;
 	vec3 g = mix(texture(grass_tex, uv).rgb,
-		texture(grass_tex, uv * 0.13 + vec2(13.7, 7.3)).rgb, 0.5);
+		texture(grass_tex, uv * 0.13 + vec2(13.7, 7.3)).rgb, 0.5) * grass_tint;
 	// Large-scale hue mottling: lusher hollows, sun-dried rises.
 	g *= mix(vec3(0.9, 1.02, 0.9), vec3(1.08, 1.0, 0.85), m2);
 	vec3 d = mix(texture(dirt_tex, uv * 0.7).rgb,
-		texture(dirt_tex, uv * 0.11 + vec2(4.2, 9.1)).rgb, 0.45);
-	vec3 r = mix(texture(rock_tex, uv * 0.4).rgb, texture(rock_tex, uv * 0.05).rgb, 0.5);
+		texture(dirt_tex, uv * 0.11 + vec2(4.2, 9.1)).rgb, 0.45) * dirt_tint;
+	vec3 r = mix(texture(rock_tex, uv * 0.4).rgb,
+		texture(rock_tex, uv * 0.05).rgb, 0.5) * rock_tint;
 	float slope = clamp(1.0 - wny, 0.0, 1.0);
 	float rock_w = smoothstep(0.30, 0.45, slope + (m3 - 0.5) * 0.09);
 	// Ground dries out with elevation and on slopes; stays lush low down.
@@ -345,14 +349,69 @@ func build() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = sh
 	var bid: String = biome.id
-	mat.set_shader_parameter("grass_tex", TexF.noise_tex("grass_" + bid, 101, 0.18,
-		biome.terrain.grass[0], biome.terrain.grass[1]))
-	mat.set_shader_parameter("dirt_tex", TexF.noise_tex("dirtt_" + bid, 102, 0.12,
-		biome.terrain.dirt[0], biome.terrain.dirt[1]))
-	mat.set_shader_parameter("rock_tex", TexF.noise_tex("rockt_" + bid, 103, 0.06,
-		biome.terrain.rock[0], biome.terrain.rock[1]))
+	# Real photo textures per biome (CC0, textures/), tinted to keep each
+	# biome's palette; the mask stays procedural. Falls back to the old
+	# noise textures if a file is missing.
+	var ground_file := "leafy_grass"
+	var gt := Color(1, 1, 1)
+	var dt := Color(1, 1, 1)
+	var rt := Color(1, 1, 1)
+	match bid:
+		"autumn":
+			ground_file = "forest_leaves_03"
+			gt = Color(1.05, 0.95, 0.8)
+		"winter":
+			ground_file = "snow_02"
+			dt = Color(0.75, 0.75, 0.82)
+			rt = Color(0.9, 0.95, 1.05)
+		"desert":
+			ground_file = "coast_sand_01"
+			gt = Color(1.1, 0.98, 0.78)
+			dt = Color(1.15, 1.0, 0.78)
+			rt = Color(1.1, 0.95, 0.8)
+		"dunes":
+			ground_file = "coast_sand_01"
+			gt = Color(1.12, 1.05, 0.92)
+			dt = Color(1.1, 1.02, 0.88)
+		"mountain":
+			gt = Color(0.92, 0.95, 0.88)
+		"riverlands":
+			gt = Color(0.88, 1.04, 0.82)
+		"swamp":
+			ground_file = "forest_ground_04"
+			gt = Color(0.72, 0.78, 0.66)
+			dt = Color(0.7, 0.72, 0.62)
+			rt = Color(0.7, 0.72, 0.68)
+		"ashlands":
+			ground_file = "burned_ground_01"
+			gt = Color(0.55, 0.53, 0.51)
+			dt = Color(0.5, 0.48, 0.47)
+			rt = Color(0.45, 0.44, 0.45)
+		"cavern":
+			ground_file = "rocky_terrain"
+			gt = Color(0.62, 0.68, 0.78)
+			dt = Color(0.55, 0.6, 0.72)
+			rt = Color(0.6, 0.66, 0.78)
+		"moor":
+			gt = Color(0.84, 0.9, 0.78)
+	var g_diff := TexF.pbr_tex(ground_file + "_diff")
+	if g_diff:
+		mat.set_shader_parameter("grass_tex", g_diff)
+		mat.set_shader_parameter("dirt_tex", TexF.pbr_tex("brown_mud_diff"))
+		mat.set_shader_parameter("rock_tex", TexF.pbr_tex("rock_face_diff"))
+		mat.set_shader_parameter("nrm_tex", TexF.pbr_tex(ground_file + "_nor"))
+		mat.set_shader_parameter("grass_tint", Vector3(gt.r, gt.g, gt.b))
+		mat.set_shader_parameter("dirt_tint", Vector3(dt.r, dt.g, dt.b))
+		mat.set_shader_parameter("rock_tint", Vector3(rt.r, rt.g, rt.b))
+	else:
+		mat.set_shader_parameter("grass_tex", TexF.noise_tex("grass_" + bid, 101, 0.18,
+			biome.terrain.grass[0], biome.terrain.grass[1]))
+		mat.set_shader_parameter("dirt_tex", TexF.noise_tex("dirtt_" + bid, 102, 0.12,
+			biome.terrain.dirt[0], biome.terrain.dirt[1]))
+		mat.set_shader_parameter("rock_tex", TexF.noise_tex("rockt_" + bid, 103, 0.06,
+			biome.terrain.rock[0], biome.terrain.rock[1]))
+		mat.set_shader_parameter("nrm_tex", TexF.normal_tex())
 	mat.set_shader_parameter("mask_tex", TexF.noise_tex("mask", 104, 0.04, [], []))
-	mat.set_shader_parameter("nrm_tex", TexF.normal_tex())
 	mat.set_shader_parameter("water_y", water_y)
 	var plaza_arr := PackedVector2Array()
 	for c in village_centers:
