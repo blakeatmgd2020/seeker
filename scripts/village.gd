@@ -371,6 +371,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		ll.light_color = Color(1.0, 0.8, 0.45)
 		ll.omni_range = 5.5
 		ll.light_energy = 1.2
+		ll.light_volumetric_fog_energy = 1.8
 		ll.shadow_enabled = true
 		b.add_child(ll)
 	if chimney:

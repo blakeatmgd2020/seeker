@@ -46,10 +46,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r12 · 2026-09-07 20:45"
+const VERSION := "r13 · 2026-09-09 10:30"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r13 · 2026-09-09 10:30 — Aesthetics push, layer 1: the renderer pass. Volumetric near-fog gives dawn and dusk real light shafts, torches and lanterns glow in the air, and the flashlight cuts a visible beam — best felt in the Undervault or any misty weather. Soft bloom on flames, embers, and lantern panes. Softer sun shadows with a proper penumbra. Color grading breathes with the day: warm and saturated at noon, draining to moonlit grey at night. Stronger ambient occlusion grounds objects in corners and under eaves. Next layers: real PBR textures, then a Blender-built model kit.",
 	"r12 · 2026-09-07 20:45 — Environment epic, phase 2: SEVEN new biomes for eleven total. Craghold Peaks (towering elevation), Greenreach Riverlands (lush and waterlogged), THE UNDERVAULT (a subterranean world — no sky, torchlit dark, the flashlight is king), Blackwater Fen (dead trees over black water), Cinderwaste (basalt, ashfall weather), Saltwind Dunes (pale sand, sea gales), and Mistfell Moor (heather, standing stones, rolling mist). Each rolls its own weather, moods, flora, hiding places, and architecture.",
 	"r11 · 2026-09-07 19:30 — Environment epic, phase 1: natural ground blending (multi-scale patches with ragged edges, drier rises, lush hollows, grass hue mottling) and a lusher world (trees +45%, ground cover +70%). Stars form constellations — clustered knots, voids, and a few bright anchors. Smoke is lit, so it fades into the night instead of glowing. Well exits fixed for good: you climb clear above the rim stones before hopping out. Coming next: six-plus new biomes, rivers and shoreline borders, then irregular maps ringed by predator territory.",
 	"r10 · 2026-09-07 14:10 — Spyglass only marks nodes it catches DEAD-ON (sweeping the scope no longer yellow-dots everything in sight). No ghost sun at night; scattered natural stars; bluer moon. Ice is properly slick. Pencil trail is dashed; searched X's are bigger and red. Item pickups ink their icon onto the map at the node (with pencil + surface in hand), and the recap shows where every item was found. The recap dot pings and glows for two seconds before it starts walking your path.",
@@ -822,6 +823,10 @@ func _update_daylight(delta: float) -> void:
 		_env.ambient_light_energy = 0.055 * _amb_mult
 		_env.fog_light_color = Color(0.02, 0.02, 0.03)
 		_env.fog_density = _fog_base + _wx_fog_add
+		# A thin cavern haze so torches and the flashlight cut visible beams.
+		_env.volumetric_fog_density = 0.012 + _wx_fog_add * 3.0
+		_env.volumetric_fog_albedo = Color(0.55, 0.58, 0.65)
+		_env.adjustment_saturation = 0.98
 		_sky_mat.set_shader_parameter("col_top", Color(0.008, 0.008, 0.012))
 		_sky_mat.set_shader_parameter("col_horizon", Color(0.02, 0.022, 0.03))
 		_sky_mat.set_shader_parameter("sun_strength", 0.0)
@@ -885,6 +890,12 @@ func _update_daylight(delta: float) -> void:
 	var night_amt := 0.0
 	if day_phase >= DAY_FRAC:
 		night_amt = clampf(sin((day_phase - DAY_FRAC) / (1.0 - DAY_FRAC) * PI) * 2.0, 0.0, 1.0)
+	# Near haze thickens with mood/weather; a low sun feeding the froxels is
+	# what makes the dawn and dusk light shafts.
+	_env.volumetric_fog_density = clampf(0.006 + (_fog_base + _wx_fog_add) * 6.0, 0.0, 0.09)
+	_env.volumetric_fog_albedo = Color(0.82, 0.84, 0.88).lerp(k[2] * tint, 0.35)
+	# Days run warm and saturated; nights drain toward moonlit grey.
+	_env.adjustment_saturation = lerpf(1.08, 0.9, night_amt)
 	_last_sun_dir = sun_dir
 	_last_moon_dir = moon_dir
 	_sky_mat.set_shader_parameter("sun_dir", sun_dir)
@@ -1017,6 +1028,7 @@ func _place_torches(wrng: RandomNumberGenerator) -> void:
 		tl.light_color = Color(1.0, 0.72, 0.35)
 		tl.omni_range = 11.0
 		tl.light_energy = 1.5
+		tl.light_volumetric_fog_energy = 2.2
 		t.add_child(tl)
 
 
@@ -1263,6 +1275,24 @@ func _setup_environment() -> void:
 	_env.ambient_light_energy = 1.0
 	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	_env.ssao_enabled = true
+	_env.ssao_intensity = 2.4
+	_env.ssao_radius = 1.6
+	# Near-field volumetric fog: dawn/dusk light shafts, torch halos in the
+	# dark, and a visible flashlight beam. Depth fog still does the far haze.
+	_env.volumetric_fog_enabled = true
+	_env.volumetric_fog_length = 110.0
+	_env.volumetric_fog_anisotropy = 0.55
+	# Same trap as fog_sky_affect: the default 1.0 repaints the skybox.
+	_env.volumetric_fog_sky_affect = 0.05
+	# Soft bloom so flames, lantern panes, and embers actually glow.
+	_env.glow_enabled = true
+	_env.glow_intensity = 0.45
+	_env.glow_bloom = 0.02
+	_env.glow_hdr_threshold = 1.15
+	# Gentle grade; saturation is re-driven per-frame by the day cycle.
+	_env.adjustment_enabled = true
+	_env.adjustment_contrast = 1.04
+	_env.adjustment_saturation = 1.06
 	_env.fog_enabled = true
 	# Fog must NOT swallow the skybox, or the sun, moon, clouds, and stars
 	# all wash out to one flat color.
@@ -1273,6 +1303,9 @@ func _setup_environment() -> void:
 	_sun = DirectionalLight3D.new()
 	_sun.shadow_enabled = true
 	_sun.directional_shadow_max_distance = 260.0
+	_sun.directional_shadow_blend_splits = true
+	_sun.light_angular_distance = 0.6
+	_sun.shadow_blur = 1.4
 	add_child(_sun)
 	_moon = DirectionalLight3D.new()
 	_moon.light_color = Color(0.7, 0.78, 0.95)
