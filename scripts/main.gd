@@ -49,10 +49,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r14 · 2026-09-09 12:30"
+const VERSION := "r15 · 2026-09-09 14:00"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r15 · 2026-09-09 14:00 — Environment epic, phase 3: RIVERS AND SHORES. Meandering rivers carve real channels across most maps (three in the Riverlands, gorges in Craghold, none under the Undervault or Sunscar). Deep water is a slog to wade — cross at the FORD (stepping stones, knee deep) or the plank BRIDGE where a river passes a village. Some maps trade a mountain wall for open sea (Saltwind Dunes is always coastal; rivers empty into it). Winter rivers freeze solid — walk right across. Rivers, seas, and fords all ink onto your maps.",
 	"r14 · 2026-09-09 12:30 — THE GRAPPLING HOOK replaces the climbing irons: the rope alone opens wells, and rope + hook together scale any building wall or dead tree — hold W against the surface and vault onto the roof. Every roof is now solid: jump house to house when they're close enough. House interiors rebuilt per floor plan (no more beds inside staircases) with kitchens in every home. Well bottoms are properly dark — bring the flashlight. Flashlight much brighter with a longer, wider beam. Snow falls slow and wanders; weather no longer vanishes unless you look up. Water has an underside. Cave stairs no longer see through to the world.",
 	"r13 · 2026-09-09 10:30 — Aesthetics push, layer 1: the renderer pass. Volumetric near-fog gives dawn and dusk real light shafts, torches and lanterns glow in the air, and the flashlight cuts a visible beam — best felt in the Undervault or any misty weather. Soft bloom on flames, embers, and lantern panes. Softer sun shadows with a proper penumbra. Color grading breathes with the day: warm and saturated at noon, draining to moonlit grey at night. Stronger ambient occlusion grounds objects in corners and under eaves. Next layers: real PBR textures, then a Blender-built model kit.",
 	"r12 · 2026-09-07 20:45 — Environment epic, phase 2: SEVEN new biomes for eleven total. Craghold Peaks (towering elevation), Greenreach Riverlands (lush and waterlogged), THE UNDERVAULT (a subterranean world — no sky, torchlit dark, the flashlight is king), Blackwater Fen (dead trees over black water), Cinderwaste (basalt, ashfall weather), Saltwind Dunes (pale sand, sea gales), and Mistfell Moor (heather, standing stones, rolling mist). Each rolls its own weather, moods, flora, hiding places, and architecture.",
@@ -178,6 +179,8 @@ var random_seed_val := 1
 var world: Node3D = null
 var structures: Array[Interactable] = []
 var climbables: Array = []
+var river_data: Array = []
+var sea_sides: Array = []
 var searched_count := 0
 var hunt_won := false
 var world_start_ms := 0
@@ -429,6 +432,8 @@ func _build_world() -> void:
 	terrain = Terrain.new()
 	world.add_child(terrain)
 	terrain.setup(wrng, biome)
+	# Rivers and sea borders carve the land before anything is placed on it.
+	_gen_rivers(wrng)
 
 	# Villages: 0-6 per map, 1-12 buildings each (biased small). Each village
 	# flattens its own plateau via the patch system.
@@ -437,7 +442,8 @@ func _build_world() -> void:
 	for i in nvil:
 		for attempt in 50:
 			var c := Vector2(wrng.randf_range(-130.0, 130.0), wrng.randf_range(-130.0, 130.0))
-			var ok := terrain.raw_h(c.x, c.y) > terrain.water_y + 3.0
+			var ok := terrain.raw_h(c.x, c.y) > terrain.water_y + 3.0 \
+				and _river_dist(c) > 26.0
 			for vd in _cur_vils:
 				if c.distance_to(vd.c) < 68.0:
 					ok = false
@@ -553,6 +559,7 @@ func _build_world() -> void:
 	terrain.build()
 	_add_water()
 	_add_bounds()
+	_build_river_bits(wrng)
 
 	var s_container := Node3D.new()
 	s_container.name = "Structures"
@@ -1357,6 +1364,158 @@ func _add_water() -> void:
 		cs.position = Vector3(0, terrain.water_y - 0.2, 0)
 		ib.add_child(cs)
 		world.add_child(ib)
+
+
+## Rolls this world's rivers (meandering edge-to-edge polylines, each with
+## one wading ford) and sea sides, then hands them to the terrain to carve.
+## Biomes may pin counts via the `rivers` and `sea_chance` keys.
+func _gen_rivers(wrng: RandomNumberGenerator) -> void:
+	river_data = []
+	sea_sides = []
+	var sc: float = biome.get("sea_chance", 0.2)
+	if wrng.randf() < sc:
+		sea_sides.append(wrng.randi_range(0, 3))
+		if biome.id == "dunes" and wrng.randf() < 0.4:
+			var s2 := wrng.randi_range(0, 3)
+			if not s2 in sea_sides:
+				sea_sides.append(s2)
+	var count: int = biome.get("rivers", -1)
+	if count < 0:
+		count = 1 if wrng.randf() < 0.55 else 0
+	for ri in count:
+		# Rivers run edge to edge; with a sea rolled, they empty into it.
+		var side_out: int = sea_sides[wrng.randi_range(0, sea_sides.size() - 1)] \
+			if not sea_sides.is_empty() else wrng.randi_range(0, 3)
+		var side_in := side_out ^ 1
+		var a := _side_point(side_in, wrng.randf_range(-150.0, 150.0))
+		var b := _side_point(side_out, wrng.randf_range(-150.0, 150.0))
+		var dirv := b - a
+		var un := dirv.normalized()
+		var pn := Vector2(-un.y, un.x)
+		var a1 := wrng.randf_range(20.0, 55.0)
+		var f1 := wrng.randf_range(0.5, 1.1)
+		var p1 := wrng.randf_range(0.0, TAU)
+		var a2 := wrng.randf_range(6.0, 16.0)
+		var f2 := wrng.randf_range(1.5, 2.5)
+		var p2 := wrng.randf_range(0.0, TAU)
+		var np := maxi(int(dirv.length() / 8.0), 12)
+		var pts := PackedVector2Array()
+		for i in np + 1:
+			var t := float(i) / np
+			var env := sin(t * PI)
+			var off := sin(t * TAU * f1 + p1) * a1 * env + sin(t * TAU * f2 + p2) * a2 * env
+			var p := a + dirv * t + pn * off
+			pts.append(Vector2(clampf(p.x, -250.0, 250.0), clampf(p.y, -250.0, 250.0)))
+		var wch := wrng.randf_range(4.5, 6.5) + (2.0 if biome.id == "riverlands" else 0.0)
+		# The ford needs solid land under it — carving only LOWERS terrain,
+		# so a spot already drowned in a natural hollow can't shallow up.
+		var ford := pts[int(np * 0.5)]
+		var fj := wrng.randi_range(0, 7)
+		for i in 8:
+			var cand := pts[int(np * (0.3 + 0.05 * ((fj + i) % 8)))]
+			if terrain.raw_h(cand.x, cand.y) > terrain.water_y + 0.5:
+				ford = cand
+				break
+		river_data.append({pts = pts, w = wch, ford = ford})
+	terrain.set_water_features(river_data, sea_sides)
+
+
+static func _side_point(side: int, along: float) -> Vector2:
+	match side:
+		0:
+			return Vector2(252.0, along)
+		1:
+			return Vector2(-252.0, along)
+		2:
+			return Vector2(along, 252.0)
+		_:
+			return Vector2(along, -252.0)
+
+
+func _river_dist(p: Vector2) -> float:
+	var best := 1e9
+	for rv in river_data:
+		var pts: PackedVector2Array = rv.pts
+		for si in pts.size() - 1:
+			best = minf(best, Terrain.seg_dist(p, pts[si], pts[si + 1]))
+	return best
+
+
+## Ford stepping stones and, where a river passes near a village, a plank
+## bridge spanning the channel.
+func _build_river_bits(wrng: RandomNumberGenerator) -> void:
+	if river_data.is_empty():
+		return
+	var rroot := StaticBody3D.new()
+	rroot.name = "RiverWorks"
+	rroot.collision_layer = 1
+	world.add_child(rroot)
+	var stone := TexF.mat("stone")
+	for rv in river_data:
+		var pts: PackedVector2Array = rv.pts
+		var fi := 0
+		var fbest := 1e9
+		for i in pts.size():
+			var d: float = pts[i].distance_to(rv.ford)
+			if d < fbest:
+				fbest = d
+				fi = i
+		var fdir: Vector2 = (pts[mini(fi + 1, pts.size() - 1)]
+			- pts[maxi(fi - 1, 0)]).normalized()
+		var fperp := Vector2(-fdir.y, fdir.x)
+		for i in 4:
+			var sp: Vector2 = rv.ford + fperp * (float(i) - 1.5) * 1.45 \
+				+ fdir * wrng.randf_range(-0.5, 0.5)
+			Util.cyl(rroot, 0.52, 0.66, 0.6, Vector3(sp.x, terrain.water_y - 0.13, sp.y),
+				stone, Vector3.ZERO, 9)
+			Util.shape_box(rroot, Vector3(0.95, 0.2, 0.95),
+				Vector3(sp.x, terrain.water_y + 0.07, sp.y))
+		# One bridge per river at its closest pass by a village.
+		var bbest := 55.0
+		var bi := -1
+		for vd in _cur_vils:
+			for i in range(2, pts.size() - 2):
+				var d2: float = pts[i].distance_to(vd.c)
+				if d2 < bbest:
+					bbest = d2
+					bi = i
+		if bi >= 0 and rv.ford.distance_to(pts[bi]) > 14.0:
+			_build_bridge(rroot, rv, bi)
+
+
+func _build_bridge(rroot: Node3D, rv: Dictionary, bi: int) -> void:
+	var pts: PackedVector2Array = rv.pts
+	var c := pts[bi]
+	var dirv: Vector2 = (pts[bi + 1] - pts[bi - 1]).normalized()
+	var perp := Vector2(-dirv.y, dirv.x)
+	var half: float = rv.w + 7.0
+	var deck_y: float = terrain.water_y + 1.7
+	var br := StaticBody3D.new()
+	br.collision_layer = 1
+	rroot.add_child(br)
+	br.position = Vector3(c.x, deck_y, c.y)
+	br.rotation.y = atan2(-perp.y, perp.x)
+	var plank := TexF.mat("plank")
+	var dark := TexF.mat("darkwood")
+	Util.box(br, Vector3(half * 2.0, 0.16, 2.3), Vector3.ZERO, plank)
+	for zs in [-1.05, 1.05]:
+		Util.box(br, Vector3(half * 2.0, 0.1, 0.1), Vector3(0, 1.02, zs), dark, false)
+		var nposts := maxi(int(half), 3)
+		for i in nposts + 1:
+			var px := -half + (half * 2.0) * i / nposts
+			Util.box(br, Vector3(0.12, 1.0, 0.12), Vector3(px, 0.55, zs), dark, false)
+	for xs in [-half * 0.4, half * 0.4]:
+		for zs2 in [-0.8, 0.8]:
+			Util.box(br, Vector3(0.32, 3.4, 0.32), Vector3(xs, -1.6, zs2), dark, false)
+	# Invisible approach ramps meet the banks at their actual heights.
+	for e in [-1.0, 1.0]:
+		var endp: Vector2 = c + perp * (half + 1.9) * e
+		var bank_h := terrain.height_at(endp.x, endp.y)
+		var dy := bank_h - deck_y
+		var rl := sqrt(3.8 * 3.8 + dy * dy)
+		var ang := rad_to_deg(atan2(dy, 3.8))
+		Util.shape_box(br, Vector3(rl, 0.14, 2.3),
+			Vector3((half + 1.9) * e, dy * 0.5 + 0.04, 0), Vector3(0, 0, ang * e))
 
 
 func _add_bounds() -> void:

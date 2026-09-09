@@ -85,7 +85,7 @@ static func get_def(id: String) -> Dictionary:
 			}
 		"desert":
 			return {
-				id = "desert", label = "Sunscar Badlands",
+				id = "desert", label = "Sunscar Badlands", rivers = 0, sea_chance = 0.0,
 				terrain = {
 					amp_scale = 0.85, water_offset = -1.5,
 					grass = [[0.0, 0.5, 1.0], [Color(0.70, 0.58, 0.38), Color(0.79, 0.67, 0.46), Color(0.86, 0.75, 0.55)]],
@@ -117,7 +117,7 @@ static func get_def(id: String) -> Dictionary:
 			}
 		"mountain":
 			return {
-				id = "mountain", label = "Craghold Peaks",
+				id = "mountain", label = "Craghold Peaks", rivers = 1, sea_chance = 0.1,
 				terrain = {
 					amp_scale = 2.6, water_offset = -0.5,
 					grass = [[0.0, 0.5, 1.0], [Color(0.24, 0.32, 0.20), Color(0.34, 0.42, 0.28), Color(0.46, 0.50, 0.36)]],
@@ -151,7 +151,7 @@ static func get_def(id: String) -> Dictionary:
 			}
 		"riverlands":
 			return {
-				id = "riverlands", label = "Greenreach Riverlands",
+				id = "riverlands", label = "Greenreach Riverlands", rivers = 3, sea_chance = 0.3,
 				terrain = {
 					amp_scale = 0.65, water_offset = 2.2,
 					grass = [[0.0, 0.45, 0.75, 1.0], [Color(0.10, 0.28, 0.10), Color(0.16, 0.38, 0.14),
@@ -186,6 +186,7 @@ static func get_def(id: String) -> Dictionary:
 		"cavern":
 			return {
 				id = "cavern", label = "The Undervault", underground = true,
+				rivers = 0, sea_chance = 0.0,
 				terrain = {
 					amp_scale = 0.8, water_offset = 0.5,
 					grass = [[0.0, 0.5, 1.0], [Color(0.20, 0.21, 0.25), Color(0.28, 0.29, 0.33), Color(0.36, 0.37, 0.42)]],
@@ -215,7 +216,7 @@ static func get_def(id: String) -> Dictionary:
 			}
 		"swamp":
 			return {
-				id = "swamp", label = "Blackwater Fen",
+				id = "swamp", label = "Blackwater Fen", rivers = 2, sea_chance = 0.3,
 				terrain = {
 					amp_scale = 0.55, water_offset = 2.6,
 					grass = [[0.0, 0.5, 1.0], [Color(0.14, 0.20, 0.10), Color(0.22, 0.28, 0.13), Color(0.32, 0.34, 0.17)]],
@@ -281,7 +282,7 @@ static func get_def(id: String) -> Dictionary:
 			}
 		"dunes":
 			return {
-				id = "dunes", label = "Saltwind Dunes",
+				id = "dunes", label = "Saltwind Dunes", rivers = 1, sea_chance = 1.0,
 				terrain = {
 					amp_scale = 0.7, water_offset = 1.8,
 					grass = [[0.0, 0.5, 1.0], [Color(0.74, 0.66, 0.48), Color(0.84, 0.76, 0.58), Color(0.92, 0.86, 0.70)]],
@@ -314,7 +315,7 @@ static func get_def(id: String) -> Dictionary:
 			}
 		"moor":
 			return {
-				id = "moor", label = "Mistfell Moor",
+				id = "moor", label = "Mistfell Moor", sea_chance = 0.35,
 				terrain = {
 					amp_scale = 0.95, water_offset = 0.8,
 					grass = [[0.0, 0.45, 0.75, 1.0], [Color(0.18, 0.24, 0.16), Color(0.26, 0.30, 0.20),

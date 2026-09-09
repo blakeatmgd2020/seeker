@@ -283,7 +283,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		roof.size = Vector3(w + 1.4, 2.8, d + 1.4)
 		roof.material = m.roof
 		Util.mesh(b, roof, Vector3(0, F + h + 1.4, 0))
-		_pitch_collision(rb, (w + 1.4) * 0.5, 2.8, F + h, d + 1.4)
+		_pitch_collision(rb, (w + 1.4) * 0.5, 2.8, F + h, d + 1.4, w * 0.5)
 		var snow := PrismMesh.new()
 		snow.size = Vector3(w + 1.5, 0.5, d + 1.5)
 		snow.material = TexF.mat("snow")
@@ -298,7 +298,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		roof.size = Vector3(w + 1.2, 2.2, d + 1.2)
 		roof.material = m.roof
 		Util.mesh(b, roof, Vector3(0, F + h + 1.1, 0))
-		_pitch_collision(rb, (w + 1.2) * 0.5, 2.2, F + h, d + 1.2)
+		_pitch_collision(rb, (w + 1.2) * 0.5, 2.2, F + h, d + 1.2, w * 0.5)
 		if style == "timber":
 			for iv in [Vector3(-2.6, F + 1.1, fz + 0.15), Vector3(3.1, F + 1.8, fz + 0.15)]:
 				var ivy := SphereMesh.new()
@@ -532,15 +532,19 @@ static func _roof_body(b: StaticBody3D) -> StaticBody3D:
 
 
 ## Invisible collision panels matching a PrismMesh roof (ridge along Z,
-## slopes facing ±X) so the roof can be walked on and landed on.
+## slopes facing ±X) so the roof can be walked on and landed on. Panels
+## span ridge to WALL PLANE only — the visual eave overhang carries no
+## collision, or its underside would trap anyone climbing the wall below.
 static func _pitch_collision(rb: StaticBody3D, half: float, rh: float,
-		base_y: float, depth: float) -> void:
-	var l := sqrt(half * half + rh * rh) + 0.25
+		base_y: float, depth: float, wall_half: float) -> void:
+	var y_wall := base_y + rh * (1.0 - wall_half / half)
+	var l := sqrt(wall_half * wall_half + (base_y + rh - y_wall) ** 2) + 0.2
 	var ang := rad_to_deg(atan2(rh, half))
+	var yc := (y_wall + base_y + rh) * 0.5
 	Util.shape_box(rb, Vector3(l, 0.14, depth),
-		Vector3(-half * 0.5, base_y + rh * 0.5, 0), Vector3(0, 0, ang))
+		Vector3(-wall_half * 0.5, yc, 0), Vector3(0, 0, ang))
 	Util.shape_box(rb, Vector3(l, 0.14, depth),
-		Vector3(half * 0.5, base_y + rh * 0.5, 0), Vector3(0, 0, -ang))
+		Vector3(wall_half * 0.5, yc, 0), Vector3(0, 0, -ang))
 
 
 ## A framed bed: base, blanket, pillow, headboard at the -Z end.
@@ -623,7 +627,7 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		roof.size = Vector3(w + 1.4, rh, d + 1.4)
 		roof.material = m.barn_roof
 		Util.mesh(b, roof, Vector3(0, F + h + rh * 0.5, 0))
-		_pitch_collision(rb, (w + 1.4) * 0.5, rh, F + h, d + 1.4)
+		_pitch_collision(rb, (w + 1.4) * 0.5, rh, F + h, d + 1.4, w * 0.5)
 		if style == "alpine":
 			var snow := PrismMesh.new()
 			snow.size = Vector3(w + 1.5, 0.5, d + 1.5)

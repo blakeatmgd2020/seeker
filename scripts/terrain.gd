@@ -76,6 +76,11 @@ var max_h := -1e9
 var top_spot := Vector3.ZERO
 var patches: Array = []  # {p: Vector2, rf: float, rb: float, h: float}
 var holes: Array = []    # {c: Vector2, half: Vector2, rot: float}
+var rivers: Array = []   # {pts: PackedVector2Array, w: float, ford: Vector2}
+var sea_sides: Array = []  # side ints: 0 +x, 1 -x, 2 +z, 3 -z
+const RF_N := 101        # carve-field resolution (5 m cells, bilinear)
+var _rk := PackedFloat32Array()
+var _rbed := PackedFloat32Array()
 
 
 func _init() -> void:
@@ -99,6 +104,10 @@ func setup(wrng: RandomNumberGenerator, biome_def: Dictionary) -> void:
 	village_centers.clear()
 	patches.clear()
 	holes.clear()
+	rivers = []
+	sea_sides = []
+	_rk = PackedFloat32Array()
+	_rbed = PackedFloat32Array()
 	_analyze()
 
 
@@ -149,6 +158,91 @@ func _analyze() -> void:
 	water_y = raw_min + 3.0 + biome.terrain.water_offset
 
 
+## Registers rivers and sea sides (call between setup() and any placement
+## height queries). Rivers carve channels below the water line — deep in
+## midstream, wading-shallow around each ford — via a baked 5 m field;
+## sea sides drown the map edge instead of raising the rim.
+func set_water_features(rvs: Array, seas: Array) -> void:
+	rivers = rvs
+	sea_sides = seas
+	if rivers.is_empty():
+		return
+	_rk = PackedFloat32Array()
+	_rk.resize(RF_N * RF_N)
+	_rbed = PackedFloat32Array()
+	_rbed.resize(RF_N * RF_N)
+	_rbed.fill(water_y - 2.4)
+	var cell := SIZE / float(RF_N - 1)
+	for rv in rivers:
+		var pts: PackedVector2Array = rv.pts
+		var wch: float = rv.w
+		var reach := wch + 9.0
+		for si in pts.size() - 1:
+			var a := pts[si]
+			var b := pts[si + 1]
+			var i0 := maxi(int(floor((minf(a.x, b.x) - reach + SIZE * 0.5) / cell)), 0)
+			var i1 := mini(int(ceil((maxf(a.x, b.x) + reach + SIZE * 0.5) / cell)), RF_N - 1)
+			var j0 := maxi(int(floor((minf(a.y, b.y) - reach + SIZE * 0.5) / cell)), 0)
+			var j1 := mini(int(ceil((maxf(a.y, b.y) + reach + SIZE * 0.5) / cell)), RF_N - 1)
+			for j in range(j0, j1 + 1):
+				for i in range(i0, i1 + 1):
+					var p := Vector2(-SIZE * 0.5 + i * cell, -SIZE * 0.5 + j * cell)
+					var d := seg_dist(p, a, b)
+					if d >= reach:
+						continue
+					var k := 1.0 - smoothstep(wch * 0.45, reach, d)
+					# Channels pinch closed against mountain edges (a carved
+					# slot in the rim shows the void beyond); only sea sides
+					# stay open, where the river empties out.
+					var edge := maxf(absf(p.x), absf(p.y))
+					if edge > 234.0:
+						var sdom := 0
+						if absf(p.y) > absf(p.x):
+							sdom = 2 if p.y > 0.0 else 3
+						elif p.x < 0.0:
+							sdom = 1
+						if not sdom in sea_sides:
+							k *= 1.0 - smoothstep(234.0, 246.0, edge)
+					var idx := j * RF_N + i
+					if k > _rk[idx]:
+						_rk[idx] = k
+						var fd: float = rv.ford.distance_to(p)
+						_rbed[idx] = lerpf(water_y - 2.4, water_y - 0.35,
+							1.0 - smoothstep(4.5, 11.0, fd))
+
+
+static func seg_dist(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-5), 0.0, 1.0)
+	return (p - (a + ab * t)).length()
+
+
+func _water_mod(h: float, x: float, z: float) -> float:
+	for s in sea_sides:
+		var edge: float = [x, -x, z, -z][s]
+		var t := smoothstep(195.0, 242.0, edge)
+		if t > 0.0:
+			h = lerpf(h, water_y - 7.0, t)
+	if _rk.is_empty():
+		return h
+	var cell := SIZE / float(RF_N - 1)
+	var fx := clampf((x + SIZE * 0.5) / cell, 0.0, float(RF_N - 1) - 0.001)
+	var fz := clampf((z + SIZE * 0.5) / cell, 0.0, float(RF_N - 1) - 0.001)
+	var i := int(fx)
+	var j := int(fz)
+	var tx := fx - i
+	var tz := fz - j
+	var i1 := mini(i + 1, RF_N - 1)
+	var j1 := mini(j + 1, RF_N - 1)
+	var k := lerpf(lerpf(_rk[j * RF_N + i], _rk[j * RF_N + i1], tx),
+		lerpf(_rk[j1 * RF_N + i], _rk[j1 * RF_N + i1], tx), tz)
+	if k > 0.003:
+		var bed := lerpf(lerpf(_rbed[j * RF_N + i], _rbed[j * RF_N + i1], tx),
+			lerpf(_rbed[j1 * RF_N + i], _rbed[j1 * RF_N + i1], tx), tz)
+		h = lerpf(h, minf(h, bed), k)
+	return h
+
+
 func height_at(x: float, z: float) -> float:
 	var h := raw_h(x, z)
 	for pa in patches:
@@ -159,7 +253,9 @@ func height_at(x: float, z: float) -> float:
 				pt = (pd - pa.rf) / (pa.rb - pa.rf)
 				pt = pt * pt * (3.0 - 2.0 * pt)
 			h = lerpf(pa.h, h, pt)
-	return h
+	# Water carving comes LAST: a terrace or plaza blend must never dam a
+	# river channel or silt up a ford.
+	return _water_mod(h, x, z)
 
 
 func normal_at(x: float, z: float) -> Vector3:

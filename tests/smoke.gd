@@ -68,6 +68,38 @@ func _nest_check(main, fails: Array[String], tagp: String) -> void:
 		fails.append(tagp + "gear climbables (%d) != nests (%d)" % [gear_climbs, nests])
 
 
+## Rivers: pinned counts per biome, wading-depth fords, carved beds, and
+## villages kept clear of the channels.
+func _river_check(main, fails: Array[String], b: String) -> void:
+	var wy: float = main.terrain.water_y
+	var pinned: int = main.biome.get("rivers", -1)
+	if pinned >= 0 and main.river_data.size() != pinned:
+		fails.append("%s: expected %d rivers, got %d" % [b, pinned, main.river_data.size()])
+	for rv in main.river_data:
+		var fh: float = main.terrain.height_at(rv.ford.x, rv.ford.y)
+		if fh > wy - 0.05 or fh < wy - 0.8:
+			fails.append("%s: ford not wading depth (%.2f vs water %.2f)" % [b, fh, wy])
+		var pts: PackedVector2Array = rv.pts
+		var mid: Vector2 = pts[int(pts.size() * 0.15)]
+		if mid.distance_to(rv.ford) > 14.0:
+			var mh: float = main.terrain.height_at(mid.x, mid.y)
+			if mh > wy - 1.0:
+				fails.append("%s: river bed not carved below water (%.2f vs %.2f)" % [b, mh, wy])
+	for vd in main._cur_vils:
+		var rd: float = main._river_dist(vd.c)
+		if rd < 15.0:
+			fails.append("%s: village %.0f m from a river" % [b, rd])
+	if b == "dunes":
+		if main.sea_sides.is_empty():
+			fails.append("dunes: no sea side rolled")
+		else:
+			var s: int = main.sea_sides[0]
+			var edge: Vector2 = [Vector2(246, 0), Vector2(-246, 0),
+				Vector2(0, 246), Vector2(0, -246)][s]
+			if main.terrain.height_at(edge.x, edge.y) > wy - 1.0:
+				fails.append("dunes: sea side %d not below water at the edge" % s)
+
+
 func _process(_delta: float) -> bool:
 	_frames += 1
 	if _frames < 4:
@@ -477,6 +509,7 @@ func _process(_delta: float) -> bool:
 		if main.world.get_node_or_null("Village") == null:
 			fails.append("%s: village missing" % b)
 		_nest_check(main, fails, b + ": ")
+		_river_check(main, fails, b)
 	main.debug_biome = ""
 
 	# Physically walk the player up the entry ramp into a house (worlds can
@@ -668,7 +701,9 @@ func _well_test_tick(main) -> bool:
 	main.tools.rope = true
 	main.tools.grapple = true
 	var pl = main.player
-	pl.global_position = _walk_house.global_transform * Vector3(5.4, 0.6, 0.0)
+	# Spawn clear of the widest variant's wall (tworoom is 11 wide) and walk
+	# in; the climb starts when the wall rays engage.
+	pl.global_position = _walk_house.global_transform * Vector3(6.9, 0.6, 0.0)
 	pl.velocity = Vector3.ZERO
 	var dirw: Vector3 = _walk_house.global_transform.basis * Vector3(-1, 0, 0)
 	pl.set_facing(atan2(-dirw.x, -dirw.z))

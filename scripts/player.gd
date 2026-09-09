@@ -48,6 +48,7 @@ var _well_deep := false
 var _well_cool_ms := 0
 var _wall_climb := false
 var _wall_n := Vector3.ZERO
+var _wall_tree := false
 var _lock_until_ms := 0
 var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
@@ -508,21 +509,27 @@ func _physics_process(delta: float) -> void:
 	if not climbing and climb.is_empty() and wellc.is_empty() \
 			and main != null and main.tools.rope and main.tools.grapple \
 			and iv.y < -0.1 and not sitting:
+		# Rays are keyed to the feet (the body origin): the crest fires only
+		# once the low ray — ankle height — clears the wall top.
 		var low := _grapple_ray(0.3)
 		if low != Vector3.ZERO \
-				and (_wall_climb or (_grapple_ray(1.2) != Vector3.ZERO and _headroom_clear())):
+				and (_wall_climb or (_grapple_ray(0.6) != Vector3.ZERO
+					and _headroom_clear() and not _floor_is_grapple())):
 			climbing = true
 			_wall_climb = true
 			_wall_n = low
+			_wall_tree = _last_grapple_tree
 			velocity = Vector3(0, CLIMB_SPEED, 0) - Vector3(low.x, 0, low.z) * 0.6
 			body_vis.rotation.y = lerp_angle(body_vis.rotation.y,
 				atan2(-low.x, -low.z), minf(1.0, 12.0 * delta))
 		elif _wall_climb:
 			# The wall top just cleared underfoot: vault up and over onto
-			# whatever waits — a roof, a trunk top.
+			# whatever waits. Trees get a gentle push (a hard one overshoots
+			# the trunk top); walls need reach to land on the roof slope.
 			climbing = true
 			_wall_climb = false
-			velocity = Vector3(-_wall_n.x, 0, -_wall_n.z).normalized() * 2.6 \
+			var push := 0.9 if _wall_tree else 2.6
+			velocity = Vector3(-_wall_n.x, 0, -_wall_n.z).normalized() * push \
 				+ Vector3(0, 5.0, 0)
 	elif _wall_climb:
 		_wall_climb = false
@@ -586,6 +593,10 @@ func _physics_process(delta: float) -> void:
 			sp *= 0.85
 		if crouched:
 			sp *= 0.5
+		# Deep water is a slog — fords and bridges are the fast crossings.
+		if main != null and main.terrain != null \
+				and global_position.y < main.terrain.water_y - 0.35:
+			sp *= 0.45
 		# Frozen ponds barely grip: acceleration and braking crawl, so
 		# momentum carries you sliding across the ice.
 		var icy: bool = is_on_floor() and main != null and main.on_ice(global_position)
@@ -678,8 +689,11 @@ func _near_climbable() -> Dictionary:
 	return {}
 
 
+var _last_grapple_tree := false
+
+
 ## Casts forward at the given height above the feet; returns the surface
-## normal when a near-vertical face of a grapple-scalable body is in reach.
+## normal when a near-vertical face of a grapple body is in reach.
 func _grapple_ray(hoff: float) -> Vector3:
 	var fwd := Basis(Vector3.UP, facing) * Vector3(0, 0, -1)
 	var from := global_position + Vector3(0, hoff, 0)
@@ -690,6 +704,7 @@ func _grapple_ray(hoff: float) -> Vector3:
 		return Vector3.ZERO
 	if absf(hit.normal.y) > 0.45:
 		return Vector3.ZERO
+	_last_grapple_tree = String(hit.collider.name) == "DeadTreeColliders"
 	return hit.normal
 
 
@@ -701,6 +716,17 @@ func _headroom_clear() -> bool:
 	q.exclude = [get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	return hit.is_empty() or hit.collider.is_in_group("roof")
+
+
+## Standing on a scalable body's own floor means we're INSIDE it — starting
+## a wall climb there just pins you against the ceiling.
+func _floor_is_grapple() -> bool:
+	var from := global_position + Vector3(0, 0.3, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3(0, -0.8, 0), 1)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	return not hit.is_empty() and hit.collider.is_in_group("grapple") \
+		and hit.normal.y > 0.6
 
 
 func _near_well() -> Dictionary:
