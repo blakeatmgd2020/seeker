@@ -3,7 +3,7 @@ class_name Structures
 ## (with overlap); some materials swap by biome (e.g. desert sand mounds
 ## and bleached logs).
 
-## Height of the great-tree / spire nests — climbing irons required.
+## Height of the great-tree / spire nests — rope + grappling hook required.
 const NEST_HEIGHT := 11.0
 
 

@@ -153,7 +153,7 @@ func set_tools(t: Dictionary) -> void:
 	for c in item_box.get_children():
 		item_box.remove_child(c)
 		c.queue_free()
-	for id in ["map", "compass", "spyglass", "pencil", "notepad", "irons", "rope", "flashlight"]:
+	for id in ["map", "compass", "spyglass", "pencil", "notepad", "rope", "grapple", "flashlight"]:
 		if t.get(id, false):
 			item_box.add_child(_item_chip(id))
 	map_panel.visible = t.map or t.notepad
@@ -172,7 +172,7 @@ func _item_chip(id: String) -> Control:
 	wrap.add_child(ItemIcon.new(id))
 	v.add_child(wrap)
 	var l := _label(9, Color(1.0, 0.9, 0.6))
-	l.text = "Irons" if id == "irons" else id.capitalize()
+	l.text = "Grapple" if id == "grapple" else id.capitalize()
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(l)
 	return v
@@ -221,11 +221,13 @@ static func draw_item_glyph(ci: CanvasItem, id: String, c: Vector2, r: float) ->
 			ci.draw_rect(Rect2(c + Vector2(-5, -6) * k, Vector2(10, 12) * k), Color(0.93, 0.92, 0.86))
 			for ly in [-3.0, 0.0, 3.0]:
 				ci.draw_line(c + Vector2(-3, ly) * k, c + Vector2(3, ly) * k, Color(0.55, 0.55, 0.6), 1.0)
-		"irons":
-			for ix in [-3.5, 3.5]:
-				ci.draw_colored_polygon(PackedVector2Array([
-					c + Vector2(ix - 2, -5) * k, c + Vector2(ix + 2, -5) * k, c + Vector2(ix, 7) * k]),
-					Color(0.75, 0.75, 0.8))
+		"grapple":
+			ci.draw_line(c + Vector2(0, -7) * k, c + Vector2(0, 1) * k,
+				Color(0.75, 0.75, 0.8), 2.5 * k)
+			ci.draw_arc(c + Vector2(0, 1) * k, 4.5 * k, PI * 0.15, PI * 0.85, 12,
+				Color(0.75, 0.75, 0.8), 2.5 * k)
+			ci.draw_arc(c + Vector2(0, -7) * k, 1.8 * k, 0.0, TAU, 10,
+				Color(0.62, 0.45, 0.28), 1.5 * k)
 		"rope":
 			ci.draw_arc(c, 5.5 * k, 0.0, TAU, 20, Color(0.62, 0.45, 0.28), 3.0 * k)
 			ci.draw_arc(c, 2.0 * k, 0.0, TAU, 14, Color(0.45, 0.32, 0.2), 2.0 * k)

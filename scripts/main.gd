@@ -9,6 +9,9 @@ extends Node3D
 
 const WATER_SHADER := "
 shader_type spatial;
+// cull_disabled: the surface must render from BELOW too — wading out of
+// your depth shouldn't make the water vanish overhead.
+render_mode cull_disabled;
 uniform vec4 base_col : source_color = vec4(0.12, 0.34, 0.44, 0.62);
 uniform float wind_amt = 0.15;
 uniform vec3 player_pos = vec3(0.0);
@@ -46,10 +49,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r13 · 2026-09-09 10:30"
+const VERSION := "r14 · 2026-09-09 12:30"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r14 · 2026-09-09 12:30 — THE GRAPPLING HOOK replaces the climbing irons: the rope alone opens wells, and rope + hook together scale any building wall or dead tree — hold W against the surface and vault onto the roof. Every roof is now solid: jump house to house when they're close enough. House interiors rebuilt per floor plan (no more beds inside staircases) with kitchens in every home. Well bottoms are properly dark — bring the flashlight. Flashlight much brighter with a longer, wider beam. Snow falls slow and wanders; weather no longer vanishes unless you look up. Water has an underside. Cave stairs no longer see through to the world.",
 	"r13 · 2026-09-09 10:30 — Aesthetics push, layer 1: the renderer pass. Volumetric near-fog gives dawn and dusk real light shafts, torches and lanterns glow in the air, and the flashlight cuts a visible beam — best felt in the Undervault or any misty weather. Soft bloom on flames, embers, and lantern panes. Softer sun shadows with a proper penumbra. Color grading breathes with the day: warm and saturated at noon, draining to moonlit grey at night. Stronger ambient occlusion grounds objects in corners and under eaves. Next layers: real PBR textures, then a Blender-built model kit.",
 	"r12 · 2026-09-07 20:45 — Environment epic, phase 2: SEVEN new biomes for eleven total. Craghold Peaks (towering elevation), Greenreach Riverlands (lush and waterlogged), THE UNDERVAULT (a subterranean world — no sky, torchlit dark, the flashlight is king), Blackwater Fen (dead trees over black water), Cinderwaste (basalt, ashfall weather), Saltwind Dunes (pale sand, sea gales), and Mistfell Moor (heather, standing stones, rolling mist). Each rolls its own weather, moods, flora, hiding places, and architecture.",
 	"r11 · 2026-09-07 19:30 — Environment epic, phase 1: natural ground blending (multi-scale patches with ragged edges, drier rises, lush hollows, grass hue mottling) and a lusher world (trees +45%, ground cover +70%). Stars form constellations — clustered knots, voids, and a few bright anchors. Smoke is lit, so it fades into the night instead of glowing. Well exits fixed for good: you climb clear above the rim stones before hopping out. Coming next: six-plus new biomes, rivers and shoreline borders, then irregular maps ringed by predator territory.",
@@ -183,7 +187,7 @@ var mood_name := ""
 var weather_id := "clear"
 var weather_name := "Clear"
 var tools := {map = false, compass = false, spyglass = false,
-	pencil = false, notepad = false, irons = false, rope = false,
+	pencil = false, notepad = false, grapple = false, rope = false,
 	flashlight = false}
 var has_coffee := false
 var coffee_until_ms := 0
@@ -583,8 +587,8 @@ func _build_world() -> void:
 	if biome.get("underground", false):
 		_place_torches(wrng)
 
-	# Great trees / spires become climbable (with the irons); building
-	# ladders climb free. Cavern wells descend with the rope.
+	# Great trees / spires become climbable (with rope + grappling hook);
+	# building ladders climb free. Cavern wells descend with the rope.
 	climbables.clear()
 	for s in structures:
 		if s.kind == "nest":
@@ -611,7 +615,7 @@ func _build_world() -> void:
 	trng.seed = _world_seed() ^ 0x5DEECE66
 	_assign_tools(trng)
 	tools = {map = false, compass = false, spyglass = false,
-		pencil = false, notepad = false, irons = false, rope = false,
+		pencil = false, notepad = false, grapple = false, rope = false,
 		flashlight = false}
 	player.flashlight.visible = false
 	has_coffee = false
@@ -649,8 +653,7 @@ func _wild_layout(wrng: RandomNumberGenerator, wild_total: int) -> Array:
 		bag[i] = bag[j]
 		bag[j] = tmp
 	# Reserve slots for the hilltop chest and — on most maps — two
-	# great-tree nests. About 1 in 4 worlds has no nests (and hides no
-	# climbing irons).
+	# great-tree nests. About 1 in 4 worlds has no nests.
 	var has_nests := wrng.randf() < 0.75
 	var reserve := 3 if has_nests else 1
 	while bag.size() > wild_total - reserve:
@@ -930,10 +933,20 @@ func _apply_weather(wrng: RandomNumberGenerator) -> void:
 			_wx_moon = 0.15
 			_cloud_cover = 0.85
 		"snow":
-			# Ashlands recolor the flakes into grey ashfall.
-			_weather_node = _precip(550, 6.0, Vector2(0.07, 0.07),
+			# Ashlands recolor the flakes into grey ashfall. Flakes drift
+			# down slowly on wandering paths: light gravity against damping
+			# settles a gentle terminal speed, and turbulence meanders them.
+			_weather_node = _precip(820, 13.0, Vector2(0.07, 0.07),
 				biome.get("snow_color", Color(0.96, 0.97, 1.0, 0.9)),
-				Vector3(0, -1, 0), 2.0, Vector3(0, -1.5, 0))
+				Vector3(0, -1, 0), 0.8, Vector3(0, -0.9, 0))
+			var spm: ParticleProcessMaterial = _weather_node.process_material
+			spm.damping_min = 0.5
+			spm.damping_max = 0.7
+			spm.turbulence_enabled = true
+			spm.turbulence_noise_strength = 0.55
+			spm.turbulence_noise_scale = 2.2
+			spm.turbulence_influence_min = 0.06
+			spm.turbulence_influence_max = 0.14
 			_wx_moon = 0.25
 			_cloud_cover = 0.75
 		"fog":
@@ -969,8 +982,11 @@ func _precip(amount: int, life: float, size: Vector2, color: Color, dir: Vector3
 	pm.initial_velocity_max = vel * 1.2
 	pm.gravity = grav
 	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-	pm.emission_box_extents = Vector3(28, 12, 28)
+	pm.emission_box_extents = Vector3(30, 13, 30)
 	p.process_material = pm
+	# Without a generous visibility box the default 8 m AABB culls the
+	# whole system unless the camera looks straight up at the emitter.
+	p.visibility_aabb = AABB(Vector3(-46, -26, -46), Vector3(92, 60, 92))
 	var qm := QuadMesh.new()
 	qm.size = size
 	var mat := StandardMaterial3D.new()
@@ -981,7 +997,7 @@ func _precip(amount: int, life: float, size: Vector2, color: Color, dir: Vector3
 	qm.material = mat
 	p.draw_pass_1 = qm
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	p.position = Vector3(0, 12, 0)
+	p.position = Vector3(0, 9, 0)
 	player.add_child(p)
 	return p
 
@@ -1060,17 +1076,11 @@ func _place_player(wrng: RandomNumberGenerator) -> void:
 # --- tools ---------------------------------------------------------------
 
 func _assign_tools(trng: RandomNumberGenerator) -> void:
-	# Conditional gear: an item is only hidden when the world holds
-	# something to use it on — irons need nests, the rope needs a cavern
-	# well. Worlds carry 7-9 hidden items.
+	# Nine hidden items every world: seven core tools plus the climbing kit.
+	# The rope alone opens wells; rope + grappling hook together scale any
+	# building wall, dead tree, or nest height.
 	var ids := ["map", "compass", "spyglass", "pencil", "notepad", "coffee",
-		"flashlight"]
-	for s in structures:
-		if s.kind == "nest":
-			ids.append("irons")
-			break
-	if not well_drops.is_empty():
-		ids.append("rope")
+		"flashlight", "rope", "grapple"]
 	var picks: Array[int] = []
 	while picks.size() < ids.size():
 		var i := trng.randi_range(0, structures.size() - 1)
@@ -1110,7 +1120,7 @@ func _collect_tool(s: Interactable) -> void:
 			dr.rope.visible = true
 			dr.cover.visible = false
 			dr.cover_shape.set_deferred("disabled", true)
-	hud.toast("You found the %s!" % ("climbing irons" if id == "irons" else id))
+	hud.toast("You found the %s!" % ("grappling hook" if id == "grapple" else id))
 
 
 func drink_coffee() -> void:
@@ -1384,7 +1394,7 @@ func _shot_routine() -> void:
 			nearest = s
 	player.set_target(nearest)
 	tools = {map = true, compass = false, spyglass = true,
-		pencil = true, notepad = true, irons = true, rope = true,
+		pencil = true, notepad = true, grapple = true, rope = true,
 		flashlight = true}
 	has_coffee = true
 	hud.set_tools(tools)

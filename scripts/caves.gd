@@ -58,6 +58,11 @@ static func build(parent: Node3D, terrain: Terrain, wrng: RandomNumberGenerator,
 		var t := (i + 0.5) / 8.0
 		Util.box(b, Vector3(2.2, 0.22, 0.8),
 			Vector3(0, -4.5 * t + 0.0, 3.2 - 5.6 * t), stone, false)
+	# Solid stone under the stair run: the gaps between treads used to open
+	# straight into the terrain hole — and the world beyond, since terrain
+	# backfaces are invisible from below.
+	Util.box(b, Vector3(2.3, 1.1, 7.6), Vector3(0, -3.0, 0.4), stone, true,
+		Vector3(-38.2, 0, 0))
 	Util.box(b, Vector3(2.5, 7.4, 8.2), Vector3(-2.4, -1.1, 0.3), stone)
 	Util.box(b, Vector3(2.5, 7.4, 8.2), Vector3(2.4, -1.1, 0.3), stone)
 	Util.box(b, Vector3(3.0, 0.35, 7.2), Vector3(0, 0.55, 0.4), stone, true, Vector3(-38.2, 0, 0))

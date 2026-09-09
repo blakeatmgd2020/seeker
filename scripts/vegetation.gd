@@ -28,6 +28,13 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 	canopies.collision_layer = 4
 	canopies.collision_mask = 0
 	root.add_child(canopies)
+	# Dead and bare trunks are scalable with the rope + grappling hook, so
+	# their colliders live on a body the player's wall rays recognize.
+	var dead_cols := StaticBody3D.new()
+	dead_cols.name = "DeadTreeColliders"
+	dead_cols.collision_layer = 1
+	dead_cols.add_to_group("grapple")
+	root.add_child(dead_cols)
 
 	# A lusher world: every biome carries noticeably more growth (trees
 	# +45%, ground decor +70%, small rocks +30%).
@@ -40,24 +47,24 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			v[k] = int(v[k] * 1.7)
 	if v.has("rocks"):
 		v.rocks = int(v.rocks * 1.3)
-	# Trees: [mesh, count, trunk radius, has foliage canopy]
+	# Trees: [mesh, count, trunk radius, has foliage canopy, grapple-climbable]
 	var tree_sets: Array = []
 	if v.pine > 0:
-		tree_sets.append([_pine_mesh(false), v.pine, 0.32, true])
+		tree_sets.append([_pine_mesh(false), v.pine, 0.32, true, false])
 	if v.snow_pine > 0:
-		tree_sets.append([_pine_mesh(true), v.snow_pine, 0.32, true])
+		tree_sets.append([_pine_mesh(true), v.snow_pine, 0.32, true, false])
 	if v.oak > 0:
-		tree_sets.append([_oak_mesh("leaves"), v.oak, 0.36, true])
+		tree_sets.append([_oak_mesh("leaves"), v.oak, 0.36, true, false])
 	if v.autumn_oak > 0:
 		for li in 3:
 			tree_sets.append([_oak_mesh("leaves_autumn%d" % (li + 1)),
-				int(v.autumn_oak / 3.0), 0.36, true])
+				int(v.autumn_oak / 3.0), 0.36, true, false])
 	if v.bare > 0:
-		tree_sets.append([_bare_tree_mesh("bark"), v.bare, 0.28, false])
+		tree_sets.append([_bare_tree_mesh("bark"), v.bare, 0.28, false, true])
 	if v.dead > 0:
-		tree_sets.append([_bare_tree_mesh("deadwood"), v.dead, 0.28, false])
+		tree_sets.append([_bare_tree_mesh("deadwood"), v.dead, 0.28, false, true])
 	if v.saguaro > 0:
-		tree_sets.append([_saguaro_mesh(), v.saguaro, 0.34, false])
+		tree_sets.append([_saguaro_mesh(), v.saguaro, 0.34, false, false])
 
 	for ts in tree_sets:
 		var xforms: Array[Transform3D] = []
@@ -84,10 +91,12 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			var cs := CollisionShape3D.new()
 			var sh := CylinderShape3D.new()
 			sh.radius = ts[2] * sc
-			sh.height = 5.0
+			# Climbable trunks get a collider matched to the visual trunk so
+			# cresting one puts your feet at its actual top.
+			sh.height = 4.4 * sc if ts[4] else 5.0
 			cs.shape = sh
-			cs.position = Vector3(x, h + 2.5, z)
-			cols.add_child(cs)
+			cs.position = Vector3(x, (h - sink + 2.2 * sc) if ts[4] else (h + 2.5), z)
+			(dead_cols if ts[4] else cols).add_child(cs)
 			if ts[3]:
 				var cc := CollisionShape3D.new()
 				var csph := SphereShape3D.new()

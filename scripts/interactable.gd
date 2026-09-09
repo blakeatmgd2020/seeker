@@ -161,14 +161,19 @@ func spawn_tool_prop(id: String) -> void:
 			handle.outer_radius = 0.065
 			handle.material = TexF.plain(Color(0.93, 0.92, 0.88))
 			Util.mesh(holder, handle, Vector3(0.12, 0.0, 0), Vector3(90, 0, 0))
-		"irons":
-			for ix in [-0.09, 0.09]:
-				Util.box(holder, Vector3(0.06, 0.16, 0.2), Vector3(ix, 0, 0),
-					TexF.mat("metal"), false)
-				Util.cyl(holder, 0.0, 0.03, 0.12, Vector3(ix, -0.13, 0.04),
-					TexF.mat("metal"), Vector3.ZERO, 6)
-			Util.box(holder, Vector3(0.3, 0.05, 0.05), Vector3(0, 0.08, 0),
-				TexF.mat("darkwood"), false)
+		"grapple":
+			Util.cyl(holder, 0.03, 0.03, 0.3, Vector3(0, 0.02, 0),
+				TexF.mat("metal"), Vector3.ZERO, 8)
+			for ga in [0.0, 120.0, 240.0]:
+				var ar := deg_to_rad(ga)
+				Util.cyl(holder, 0.0, 0.045, 0.18,
+					Vector3(sin(ar) * 0.1, -0.12, cos(ar) * 0.1),
+					TexF.mat("metal"), Vector3(-38, ga, 0), 6)
+			var eye := TorusMesh.new()
+			eye.inner_radius = 0.025
+			eye.outer_radius = 0.055
+			eye.material = TexF.plain(Color(0.55, 0.42, 0.25))
+			Util.mesh(holder, eye, Vector3(0, 0.19, 0), Vector3(90, 0, 0))
 	var gl := OmniLight3D.new()
 	gl.light_color = Color(1, 0.95, 0.7)
 	gl.omni_range = 2.5

@@ -46,6 +46,8 @@ var flashlight: SpotLight3D
 var _stamina_locked := false
 var _well_deep := false
 var _well_cool_ms := 0
+var _wall_climb := false
+var _wall_n := Vector3.ZERO
 var _lock_until_ms := 0
 var _regen_delay := 0.0
 var _last_walk_pos := Vector2.ZERO
@@ -95,9 +97,9 @@ func _init() -> void:
 	# light put the body between light and world, casting its own shadow
 	# forward). It still pitches with the view.
 	flashlight = SpotLight3D.new()
-	flashlight.spot_range = 34.0
-	flashlight.spot_angle = 26.0
-	flashlight.light_energy = 3.0
+	flashlight.spot_range = 52.0
+	flashlight.spot_angle = 40.0
+	flashlight.light_energy = 4.5
 	flashlight.light_color = Color(1.0, 0.96, 0.85)
 	flashlight.shadow_enabled = true
 	flashlight.position = Vector3(0.3, 0.0, -0.75)
@@ -433,11 +435,12 @@ func _physics_process(delta: float) -> void:
 		else:
 			iv.y = -1.0
 
-	# Climbing irons: near a great tree, W climbs, S descends. Building
-	# ladders (free = true) need no irons.
+	# Nest heights: near a great tree or spire, W climbs, S descends — with
+	# the rope AND grappling hook. Building ladders (free = true) need no gear.
 	var climb := _near_climbable()
 	climbing = false
-	if not climb.is_empty() and (main.tools.irons or climb.get("free", false)):
+	if not climb.is_empty() \
+			and ((main.tools.rope and main.tools.grapple) or climb.get("free", false)):
 		var to_axis := Vector3(climb.axis.x - global_position.x, 0.0,
 			climb.axis.z - global_position.z)
 		if iv.y < -0.1 and global_position.y < climb.top_y + 0.35:
@@ -499,6 +502,30 @@ func _physics_process(delta: float) -> void:
 					velocity = toward * 3.0 + Vector3(0, 1.4, 0)
 				else:
 					velocity = Vector3(0, CLIMB_SPEED, 0) + toward * 0.4
+
+	# Grappling hook: with the rope AND the hook, any building wall or dead
+	# tree can be scaled — press W against the surface and up you go.
+	if not climbing and climb.is_empty() and wellc.is_empty() \
+			and main != null and main.tools.rope and main.tools.grapple \
+			and iv.y < -0.1 and not sitting:
+		var low := _grapple_ray(0.3)
+		if low != Vector3.ZERO \
+				and (_wall_climb or (_grapple_ray(1.2) != Vector3.ZERO and _headroom_clear())):
+			climbing = true
+			_wall_climb = true
+			_wall_n = low
+			velocity = Vector3(0, CLIMB_SPEED, 0) - Vector3(low.x, 0, low.z) * 0.6
+			body_vis.rotation.y = lerp_angle(body_vis.rotation.y,
+				atan2(-low.x, -low.z), minf(1.0, 12.0 * delta))
+		elif _wall_climb:
+			# The wall top just cleared underfoot: vault up and over onto
+			# whatever waits — a roof, a trunk top.
+			climbing = true
+			_wall_climb = false
+			velocity = Vector3(-_wall_n.x, 0, -_wall_n.z).normalized() * 2.6 \
+				+ Vector3(0, 5.0, 0)
+	elif _wall_climb:
+		_wall_climb = false
 
 	# Arrow keys: keyboard turning — character and camera swing together.
 	var turn := Input.get_axis("turn_right", "turn_left")
@@ -622,16 +649,20 @@ func _physics_process(delta: float) -> void:
 	if hud and not climb.is_empty() and is_on_floor() and hud.prompt.text.is_empty():
 		if climb.get("free", false):
 			hud.prompt.text = "Hold W to climb the ladder"
-		elif main.tools.irons:
+		elif main.tools.rope and main.tools.grapple:
 			hud.prompt.text = "Hold W against the trunk to climb"
 		else:
-			hud.prompt.text = "These heights need climbing irons"
+			hud.prompt.text = "These heights need the rope and grappling hook"
 	elif hud and not wellc.is_empty() and is_on_floor() and hud.prompt.text.is_empty() \
 			and global_position.y > wellc.rim_y - 1.5:
 		if main.tools.rope:
 			hud.prompt.text = "Hold W at the rim to climb into the well"
 		else:
 			hud.prompt.text = "Something is down there — you'd need a rope"
+	elif hud and is_on_floor() and hud.prompt.text.is_empty() and iv.y < -0.1 \
+			and main != null and not (main.tools.rope and main.tools.grapple) \
+			and _grapple_ray(1.2) != Vector3.ZERO:
+		hud.prompt.text = "Scaling walls needs the rope and grappling hook"
 
 	if Input.is_action_just_pressed("interact") and target and is_instance_valid(target):
 		try_interact(target)
@@ -645,6 +676,31 @@ func _near_climbable() -> Dictionary:
 		if d < 2.2 and global_position.y < c.top_y + 1.0:
 			return c
 	return {}
+
+
+## Casts forward at the given height above the feet; returns the surface
+## normal when a near-vertical face of a grapple-scalable body is in reach.
+func _grapple_ray(hoff: float) -> Vector3:
+	var fwd := Basis(Vector3.UP, facing) * Vector3(0, 0, -1)
+	var from := global_position + Vector3(0, hoff, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, from + fwd * 1.15, 1)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty() or not hit.collider.is_in_group("grapple"):
+		return Vector3.ZERO
+	if absf(hit.normal.y) > 0.45:
+		return Vector3.ZERO
+	return hit.normal
+
+
+## True when nothing but open sky (or a roof overhang) is overhead — keeps
+## wall-climbing from pinning you to an interior ceiling.
+func _headroom_clear() -> bool:
+	var from := global_position + Vector3(0, 1.9, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3(0, 1.9, 0), 1)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	return hit.is_empty() or hit.collider.is_in_group("roof")
 
 
 func _near_well() -> Dictionary:

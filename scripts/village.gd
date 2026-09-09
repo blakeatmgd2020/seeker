@@ -195,6 +195,9 @@ static func _shell(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		win_rows: Array = []) -> StaticBody3D:
 	var b := StaticBody3D.new()
 	b.collision_layer = 1
+	# Walls can be scaled with the rope + grappling hook; the group lets the
+	# player's wall rays recognize them.
+	b.add_to_group("grapple")
 	root.add_child(b)
 	b.position = Vector3(pos.x, terrain.height_at(pos.x, pos.y), pos.y)
 	b.rotation_degrees.y = yaw
@@ -260,9 +263,11 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	Util.box(b, Vector3(1.9, 0.2, t + 0.08), Vector3(0, F + 2.38, fz), wood, false)
 
 	var res := {}
+	var rb := _roof_body(b)
 	if flat_roof:
-		# Flat roof slab with a parapet (walkable on the roofdeck variant).
-		Util.box(b, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, F + h + 0.15, 0), m.wall)
+		# Flat roof slab with a parapet (walkable — and jumpable-to from a
+		# close-enough neighbor).
+		Util.box(rb, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, F + h + 0.15, 0), m.wall)
 		for pr in [[Vector3(0, F + h + 0.5, -d * 0.5 - 0.2), Vector3(w + 0.6, 0.4, 0.2)],
 				[Vector3(0, F + h + 0.5, d * 0.5 + 0.2), Vector3(w + 0.6, 0.4, 0.2)],
 				[Vector3(-w * 0.5 - 0.2, F + h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)],
@@ -278,6 +283,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		roof.size = Vector3(w + 1.4, 2.8, d + 1.4)
 		roof.material = m.roof
 		Util.mesh(b, roof, Vector3(0, F + h + 1.4, 0))
+		_pitch_collision(rb, (w + 1.4) * 0.5, 2.8, F + h, d + 1.4)
 		var snow := PrismMesh.new()
 		snow.size = Vector3(w + 1.5, 0.5, d + 1.5)
 		snow.material = TexF.mat("snow")
@@ -292,6 +298,7 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 		roof.size = Vector3(w + 1.2, 2.2, d + 1.2)
 		roof.material = m.roof
 		Util.mesh(b, roof, Vector3(0, F + h + 1.1, 0))
+		_pitch_collision(rb, (w + 1.2) * 0.5, 2.2, F + h, d + 1.2)
 		if style == "timber":
 			for iv in [Vector3(-2.6, F + 1.1, fz + 0.15), Vector3(3.1, F + 1.8, fz + 0.15)]:
 				var ivy := SphereMesh.new()
@@ -339,11 +346,27 @@ static func _house(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 			res.ladder = {axis = b.global_transform * Vector3(lx, 0, 0),
 				top_y = b.position.y + F + h + 0.35, free = true}
 
-	# Furniture rests on the interior floor plane.
-	Util.box(b, Vector3(1.4, 0.08, 0.8), Vector3(2.4, FLOOR_TOP + 0.74, -1.6), wood, false)
-	Util.box(b, Vector3(0.18, 0.7, 0.18), Vector3(2.4, FLOOR_TOP + 0.35, -1.6), wood, false)
-	Util.box(b, Vector3(0.9, 0.35, 1.9), Vector3(-2.9, FLOOR_TOP + 0.175, 1.4), TexF.mat("blanket"))
-	Util.box(b, Vector3(0.6, 0.14, 0.4), Vector3(-2.9, FLOOR_TOP + 0.42, 0.7), TexF.mat("pillow"), false)
+	# Furnishings follow a floor plan per variant — nothing overlaps the
+	# stairs, and every home cooks: a kitchen corner in each house.
+	match variant:
+		"tworoom":
+			# Front room lives (bed, kitchen, table); the back room keeps the
+			# wardrobe with a small side table.
+			_bed(b, -4.2, -1.5, FLOOR_TOP)
+			_kitchen(b, -4.85, 1.2, -1.0)
+			_table_set(b, -1.6, 1.5)
+			Util.box(b, Vector3(0.7, 0.5, 0.7), Vector3(2.6, FLOOR_TOP + 0.25, 1.9), wood, false)
+		"twostory":
+			# Ground floor: kitchen and table (the west wall is all stairs);
+			# the bed sleeps upstairs beside the wardrobe.
+			_kitchen(b, 3.3, -0.6, 1.0)
+			_table_set(b, 1.3, 1.5)
+			_bed(b, 2.6, 1.3, 3.6)
+			Util.box(b, Vector3(0.45, 0.4, 0.45), Vector3(1.5, 3.8, 1.3), wood, false)
+		_:
+			_bed(b, -2.9, -1.5, FLOOR_TOP)
+			_kitchen(b, 3.3, -0.6, 1.0)
+			_table_set(b, 1.3, 1.5)
 	var wl := OmniLight3D.new()
 	wl.position = Vector3(0, F + 2.5, 0)
 	wl.light_color = Color(1.0, 0.85, 0.6)
@@ -497,6 +520,66 @@ static func _window_wall(b: Node3D, x: float, t: float, d: float, h: float,
 		Util.box(b, Vector3(t, h - y0, d), Vector3(x, F + (y0 + h) * 0.5, 0), wall)
 
 
+## Roofs live on their own body (group "roof", not "grapple") so the wall
+## rays can tell wall from roof, and every roof is walkable/landable.
+static func _roof_body(b: StaticBody3D) -> StaticBody3D:
+	var rb := StaticBody3D.new()
+	rb.name = "Roof"
+	rb.collision_layer = 1
+	rb.add_to_group("roof")
+	b.add_child(rb)
+	return rb
+
+
+## Invisible collision panels matching a PrismMesh roof (ridge along Z,
+## slopes facing ±X) so the roof can be walked on and landed on.
+static func _pitch_collision(rb: StaticBody3D, half: float, rh: float,
+		base_y: float, depth: float) -> void:
+	var l := sqrt(half * half + rh * rh) + 0.25
+	var ang := rad_to_deg(atan2(rh, half))
+	Util.shape_box(rb, Vector3(l, 0.14, depth),
+		Vector3(-half * 0.5, base_y + rh * 0.5, 0), Vector3(0, 0, ang))
+	Util.shape_box(rb, Vector3(l, 0.14, depth),
+		Vector3(half * 0.5, base_y + rh * 0.5, 0), Vector3(0, 0, -ang))
+
+
+## A framed bed: base, blanket, pillow, headboard at the -Z end.
+static func _bed(b: Node3D, x: float, z: float, ybase: float) -> void:
+	var dark := TexF.mat("darkwood")
+	Util.box(b, Vector3(1.05, 0.32, 2.05), Vector3(x, ybase + 0.16, z), dark)
+	Util.box(b, Vector3(0.95, 0.22, 1.95), Vector3(x, ybase + 0.4, z), TexF.mat("blanket"))
+	Util.box(b, Vector3(0.6, 0.14, 0.4), Vector3(x, ybase + 0.56, z - 0.7),
+		TexF.mat("pillow"), false)
+	Util.box(b, Vector3(1.05, 0.5, 0.14), Vector3(x, ybase + 0.45, z - 1.09), dark, false)
+
+
+## Kitchen corner along a side wall: counter with a work top, wall shelf
+## with crockery, a kettle, and a bucket. wall_dir +1 hugs east, -1 west.
+static func _kitchen(b: Node3D, cx: float, cz: float, wall_dir: float) -> void:
+	var dark := TexF.mat("darkwood")
+	var top := TexF.mat("wood")
+	Util.box(b, Vector3(0.55, 0.82, 1.7), Vector3(cx, FLOOR_TOP + 0.41, cz), dark)
+	Util.box(b, Vector3(0.62, 0.06, 1.8), Vector3(cx, FLOOR_TOP + 0.85, cz), top, false)
+	Util.box(b, Vector3(0.4, 0.05, 1.3), Vector3(cx + wall_dir * 0.12, FLOOR_TOP + 1.72, cz),
+		top, false)
+	for pz in [cz - 0.45, cz + 0.1]:
+		Util.cyl(b, 0.11, 0.13, 0.18, Vector3(cx + wall_dir * 0.13, FLOOR_TOP + 1.84, pz),
+			TexF.mat("clay"), Vector3.ZERO, 10)
+	Util.cyl(b, 0.13, 0.16, 0.22, Vector3(cx - wall_dir * 0.05, FLOOR_TOP + 0.99, cz + 0.55),
+		TexF.mat("metal"), Vector3.ZERO, 10)
+	Util.cyl(b, 0.16, 0.13, 0.3, Vector3(cx, FLOOR_TOP + 0.15, cz + 1.2),
+		TexF.mat("wood"), Vector3.ZERO, 10)
+
+
+## Dining table with a pair of stools off its ends.
+static func _table_set(b: Node3D, x: float, z: float) -> void:
+	var wood := TexF.mat("wood")
+	Util.box(b, Vector3(1.4, 0.08, 0.8), Vector3(x, FLOOR_TOP + 0.74, z), wood, false)
+	Util.box(b, Vector3(0.18, 0.7, 0.18), Vector3(x, FLOOR_TOP + 0.35, z), wood, false)
+	for sx in [x - 1.0, x + 1.0]:
+		Util.box(b, Vector3(0.36, 0.42, 0.36), Vector3(sx, FLOOR_TOP + 0.21, z), wood, false)
+
+
 ## Cuts a horizontal slab into four boxes around a rectangular hole.
 static func _hole_slab(b: Node3D, rx0: float, rx1: float, rz0: float, rz1: float,
 		hx0: float, hx1: float, hz0: float, hz1: float, yc: float, hgt: float,
@@ -526,18 +609,21 @@ static func _barn(root: Node3D, terrain: Terrain, pos: Vector2, yaw: float,
 	var fz := d * 0.5 - 0.125
 	Util.box(b, Vector3(0.22, 3.0, 0.35), Vector3(-1.56, F + 1.5, fz), TexF.mat("darkwood"), false)
 	Util.box(b, Vector3(0.22, 3.0, 0.35), Vector3(1.56, F + 1.5, fz), TexF.mat("darkwood"), false)
+	var rb := _roof_body(b)
 	if style == "adobe":
-		Util.box(b, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, F + h + 0.15, 0), m.barn_wall)
+		Util.box(rb, Vector3(w + 0.6, 0.3, d + 0.6), Vector3(0, F + h + 0.15, 0), m.barn_wall)
 		for pr in [[Vector3(0, F + h + 0.5, -d * 0.5 - 0.2), Vector3(w + 0.6, 0.4, 0.2)],
 				[Vector3(0, F + h + 0.5, d * 0.5 + 0.2), Vector3(w + 0.6, 0.4, 0.2)],
 				[Vector3(-w * 0.5 - 0.2, F + h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)],
 				[Vector3(w * 0.5 + 0.2, F + h + 0.5, 0), Vector3(0.2, 0.4, d + 0.6)]]:
 			Util.box(b, pr[1], pr[0], m.barn_wall, false)
 	else:
+		var rh := 3.0 if style == "alpine" else 2.6
 		var roof := PrismMesh.new()
-		roof.size = Vector3(w + 1.4, 3.0 if style == "alpine" else 2.6, d + 1.4)
+		roof.size = Vector3(w + 1.4, rh, d + 1.4)
 		roof.material = m.barn_roof
-		Util.mesh(b, roof, Vector3(0, F + h + (1.5 if style == "alpine" else 1.3), 0))
+		Util.mesh(b, roof, Vector3(0, F + h + rh * 0.5, 0))
+		_pitch_collision(rb, (w + 1.4) * 0.5, rh, F + h, d + 1.4)
 		if style == "alpine":
 			var snow := PrismMesh.new()
 			snow.size = Vector3(w + 1.5, 0.5, d + 1.5)
@@ -656,12 +742,8 @@ static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String,
 		for sm in [[-2.2, 2.0, 0.9], [2.4, -1.8, 0.7]]:
 			Util.cyl(b, 0.03, 0.3, sm[2], Vector3(sm[0], -6.35 + sm[2] * 0.5, sm[1]),
 				stone, Vector3.ZERO, 7)
-		var gl := OmniLight3D.new()
-		gl.position = Vector3(0, -5.0, 0)
-		gl.light_color = Color(0.55, 0.72, 0.85)
-		gl.omni_range = 8.0
-		gl.light_energy = 1.3
-		b.add_child(gl)
+		# No light down here: the well bottom is properly dark, and the
+		# flashlight earns its keep.
 		# The rope appears once found; until then the shaft is a dark drop.
 		var rope := Util.cyl(b, 0.045, 0.045, 8.4, Vector3(0.28, -2.1, 0.28),
 			TexF.mat("darkwood"), Vector3.ZERO, 6)

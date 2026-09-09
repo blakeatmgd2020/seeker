@@ -2,7 +2,7 @@ extends SceneTree
 ## Headless smoke test:
 ##   Godot_console.exe --headless --path . -s tests/smoke.gd
 ## Verifies daily/random world generation, determinism, the 20-structure
-## budget, the 7 hidden tools, great-tree nests, spotting, the win
+## budget, the 9 hidden items, great-tree nests, spotting, the win
 ## condition (open all 20), and the feedback report pipeline.
 
 var _frames := 0
@@ -13,6 +13,8 @@ var _cave_body: Node3D = null
 var _cave_phase := 0
 var _well_drop: Dictionary = {}
 var _well_phase := 0
+var _wall_done := false
+var _wall_settle := 0
 var _fails: Array[String] = []
 
 
@@ -42,17 +44,10 @@ func _tool_count(main) -> int:
 	return n
 
 
-## Items are conditional on world features: 7 base, +irons with nests,
-## +rope with a cavern well.
-func _expected_items(main) -> int:
-	var n := 7
-	for s in main.structures:
-		if s.kind == "nest":
-			n += 1
-			break
-	if not main.well_drops.is_empty():
-		n += 1
-	return n
+## Every world hides 9 items: 7 core tools plus the rope-and-grapple
+## climbing kit.
+func _expected_items(_main) -> int:
+	return 9
 
 
 func _nest_check(main, fails: Array[String], tagp: String) -> void:
@@ -65,12 +60,12 @@ func _nest_check(main, fails: Array[String], tagp: String) -> void:
 				fails.append(tagp + "nest not high above terrain")
 	if nests != 2 and nests != 0:
 		fails.append(tagp + "expected 0 or 2 nests, got %d" % nests)
-	var irons_climbs := 0
+	var gear_climbs := 0
 	for c in main.climbables:
 		if not c.get("free", false):
-			irons_climbs += 1
-	if irons_climbs != nests:
-		fails.append(tagp + "irons climbables (%d) != nests (%d)" % [irons_climbs, nests])
+			gear_climbs += 1
+	if gear_climbs != nests:
+		fails.append(tagp + "gear climbables (%d) != nests (%d)" % [gear_climbs, nests])
 
 
 func _process(_delta: float) -> bool:
@@ -86,6 +81,8 @@ func _process(_delta: float) -> bool:
 		return _cellar_test_tick(main)
 	if _stage == 4:
 		return _well_test_tick(main)
+	if _stage == 5:
+		return _wall_test_tick(main)
 	var fails := _fails
 	if main == null or main.get_script() == null:
 		print("FAIL: Main node missing or script failed to compile")
@@ -142,14 +139,8 @@ func _process(_delta: float) -> bool:
 		if not s.tool_id.is_empty():
 			tool_ids.append(s.tool_id)
 	tool_ids.sort()
-	var expect := ["coffee", "compass", "flashlight", "map", "notepad", "pencil", "spyglass"]
-	var has_nest := false
-	for s in main.structures:
-		has_nest = has_nest or s.kind == "nest"
-	if has_nest:
-		expect.append("irons")
-	if not main.well_drops.is_empty():
-		expect.append("rope")
+	var expect := ["coffee", "compass", "flashlight", "grapple", "map", "notepad",
+		"pencil", "rope", "spyglass"]
 	expect.sort()
 	if tool_ids != expect:
 		fails.append("tool spots wrong: %s vs expected %s" % [str(tool_ids), str(expect)])
@@ -662,12 +653,57 @@ func _well_test_tick(main) -> bool:
 	var ex: float = main.player.global_position.y - _well_drop.axis.y
 	if ex < -1.0:
 		_fails.append("player trapped in the well (rel y %.2f)" % ex)
-	return _finish(_fails)
+	# Stage 5: scale a house's SIDE wall with rope + grapple and land on the
+	# roof (side, because the pitched slopes face ±X — the ±Z ends are
+	# gables). This also proves roofs carry real collision.
+	_walk_house = null
+	for sv in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+		main.start_random(sv)
+		_walk_house = main.world.get_node("Village").get_node_or_null("House")
+		if _walk_house:
+			break
+	if _walk_house == null:
+		_fails.append("no house found for the wall-climb test")
+		return _finish(_fails)
+	main.tools.rope = true
+	main.tools.grapple = true
+	var pl = main.player
+	pl.global_position = _walk_house.global_transform * Vector3(5.4, 0.6, 0.0)
+	pl.velocity = Vector3.ZERO
+	var dirw: Vector3 = _walk_house.global_transform.basis * Vector3(-1, 0, 0)
+	pl.set_facing(atan2(-dirw.x, -dirw.z))
+	Input.action_press("move_forward")
+	_stage = 5
+	_walk_frames = 0
+	return false
+
+
+func _wall_test_tick(main) -> bool:
+	_walk_frames += 1
+	var pl = main.player
+	var lp: Vector3 = _walk_house.to_local(pl.global_position)
+	if _wall_done:
+		_wall_settle += 1
+		if _wall_settle < 24:
+			return false
+		Input.action_release("move_forward")
+		if lp.y < 2.8:
+			_fails.append("player slid back off the roof (local y %.2f)" % lp.y)
+		return _finish(_fails)
+	if lp.y > 3.0 and pl.is_on_floor():
+		_wall_done = true
+		Input.action_release("move_forward")
+		return false
+	if _walk_frames >= 520:
+		Input.action_release("move_forward")
+		_fails.append("grapple wall climb failed (local y %.2f)" % lp.y)
+		return _finish(_fails)
+	return false
 
 
 func _finish(fails: Array[String]) -> bool:
 	if fails.is_empty():
-		print("SMOKE PASS (modes, determinism, 11 biomes, conditional items, nests, win+recap, walk-ins incl. well, feedback OK)")
+		print("SMOKE PASS (modes, determinism, 11 biomes, 9 items, nests, win+recap, walk-ins incl. well + wall climb, feedback OK)")
 		quit(0)
 	else:
 		for f in fails:
