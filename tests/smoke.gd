@@ -161,6 +161,11 @@ func _process(_delta: float) -> bool:
 			fails.append("flashlight hidden in an underground node")
 	if main.terrain == null or main.terrain.water_y <= -50.0:
 		fails.append("terrain/water not built")
+	# The Blender asset kit must load (assets/kit, runtime GLTF).
+	if Kit.base_mesh("pine") == null:
+		fails.append("kit asset pine.glb failed to load")
+	elif Kit.base_mesh("pine").get_surface_count() < 2:
+		fails.append("kit pine should carry bark + leaves surfaces")
 	if main.menu == null:
 		fails.append("menu missing")
 

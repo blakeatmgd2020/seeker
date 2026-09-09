@@ -147,6 +147,8 @@ static func mat(key: String) -> Material:
 			m = _pbr("clay_roof_tiles", Color(0.5, 0.52, 0.58), Vector3(3, 3, 1))
 		"stone":
 			m = _pbr("stone_tile_wall", Color(0.8, 0.78, 0.75), Vector3(1.6, 1.6, 1))
+		"rockface":
+			m = _pbr("rocky_terrain", Color(0.95, 0.96, 1.0), Vector3(1, 1, 1))
 		"bark":
 			m = _pbr("bark_brown_01", Color.WHITE, Vector3(2.0, 1.0, 1))
 		"leaves":

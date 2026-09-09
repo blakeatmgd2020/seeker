@@ -48,21 +48,34 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 	if v.has("rocks"):
 		v.rocks = int(v.rocks * 1.3)
 	# Trees: [mesh, count, trunk radius, has foliage canopy, grapple-climbable]
+	# Blender-kit meshes when present (palette applied by named material),
+	# procedural fallbacks otherwise.
+	var bark_tri := _tri("bark", 0.7)
 	var tree_sets: Array = []
 	if v.pine > 0:
-		tree_sets.append([_pine_mesh(false), v.pine, 0.32, true, false])
+		var pm: Mesh = Kit.mesh("pine", "pine",
+			{"bark": bark_tri, "leaves": _tri("leaves_dark", 1.1)})
+		tree_sets.append([pm if pm != null else _pine_mesh(false), v.pine, 0.32, true, false])
 	if v.snow_pine > 0:
-		tree_sets.append([_pine_mesh(true), v.snow_pine, 0.32, true, false])
+		var sm: Mesh = Kit.mesh("pine_snow", "pine_snow",
+			{"bark": bark_tri, "leaves": _tri("leaves_dark", 1.1), "snow": _tri("snow", 1.2)})
+		tree_sets.append([sm if sm != null else _pine_mesh(true), v.snow_pine, 0.32, true, false])
 	if v.oak > 0:
-		tree_sets.append([_oak_mesh("leaves"), v.oak, 0.36, true, false])
+		var om: Mesh = Kit.mesh("oak", "oak", {"bark": bark_tri, "leaves": _tri("leaves", 1.1)})
+		tree_sets.append([om if om != null else _oak_mesh("leaves"), v.oak, 0.36, true, false])
 	if v.autumn_oak > 0:
 		for li in 3:
-			tree_sets.append([_oak_mesh("leaves_autumn%d" % (li + 1)),
+			var lk := "leaves_autumn%d" % (li + 1)
+			var am: Mesh = Kit.mesh("oak", "oak_" + lk, {"bark": bark_tri, "leaves": _tri(lk, 1.1)})
+			tree_sets.append([am if am != null else _oak_mesh(lk),
 				int(v.autumn_oak / 3.0), 0.36, true, false])
 	if v.bare > 0:
-		tree_sets.append([_bare_tree_mesh("bark"), v.bare, 0.28, false, true])
+		var bm: Mesh = Kit.mesh("bare", "bare", {"bark": bark_tri})
+		tree_sets.append([bm if bm != null else _bare_tree_mesh("bark"), v.bare, 0.28, false, true])
 	if v.dead > 0:
-		tree_sets.append([_bare_tree_mesh("deadwood"), v.dead, 0.28, false, true])
+		var dm: Mesh = Kit.mesh("bare", "dead", {"bark": _tri("deadwood", 0.7)})
+		tree_sets.append([dm if dm != null else _bare_tree_mesh("deadwood"),
+			v.dead, 0.28, false, true])
 	if v.saguaro > 0:
 		tree_sets.append([_saguaro_mesh(), v.saguaro, 0.34, false, false])
 
@@ -119,7 +132,12 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 	if v.flowers > 0:
 		_scatter_flowers(root, terrain, exclusions, rng, v.flowers)
 
-	# Small rocks (no collision).
+	# Small rocks (no collision). The kit boulder is radius ~1 vs the
+	# procedural sphere's 0.5, so kit transforms halve.
+	var rock_mesh: Mesh = Kit.mesh("boulder", "small", {"rock": _tri("rockface", 0.8)})
+	var rk := 0.5 if rock_mesh != null else 1.0
+	if rock_mesh == null:
+		rock_mesh = _rock_mesh()
 	var rock_x: Array[Transform3D] = []
 	for i in v.rocks * 4:
 		if rock_x.size() >= v.rocks:
@@ -133,9 +151,10 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			continue
 		var sc := rng.randf_range(0.3, 1.1)
 		var basis := Basis.from_euler(Vector3(rng.randf_range(0, 0.4), rng.randf_range(0, TAU),
-			rng.randf_range(0, 0.4))).scaled(Vector3(sc, sc * 0.6, sc * rng.randf_range(0.7, 1.3)))
+			rng.randf_range(0, 0.4))).scaled(
+			Vector3(sc, sc * 0.6, sc * rng.randf_range(0.7, 1.3)) * rk)
 		rock_x.append(Transform3D(basis, Vector3(x, h + 0.05 - sc * 0.15, z)))
-	_add_multimesh(root, _rock_mesh(), rock_x)
+	_add_multimesh(root, rock_mesh, rock_x)
 
 	# Big boulders with collision.
 	var placed := 0
@@ -151,12 +170,15 @@ static func build(parent: Node3D, terrain: Terrain, exclusions: Array, sd: int,
 			continue
 		placed += 1
 		var sc := rng.randf_range(1.8, 3.5)
-		var bm := SphereMesh.new()
-		bm.radius = 1.0
-		bm.height = 2.0
-		bm.radial_segments = 8
-		bm.rings = 5
-		bm.material = TexF.mat("stone")
+		var bm: Mesh = Kit.mesh("boulder", "big", {"rock": _tri("rockface", 1.9)})
+		if bm == null:
+			var sph := SphereMesh.new()
+			sph.radius = 1.0
+			sph.height = 2.0
+			sph.radial_segments = 8
+			sph.rings = 5
+			sph.material = TexF.mat("stone")
+			bm = sph
 		var sink := terrain.drop_under(Vector2(x, z), sc * 0.6) * 0.7
 		var mi := Util.mesh(cols, bm, Vector3(x, h + sc * 0.25 - sink, z),
 			Vector3(rng.randf_range(0, 30), rng.randf_range(0, 360), rng.randf_range(0, 30)))
@@ -235,6 +257,22 @@ static func _excluded(exclusions: Array, x: float, z: float) -> bool:
 		if Vector2(x - e.x, z - e.y).length() < e.z:
 			return true
 	return false
+
+
+static var _tri_cache := {}
+
+
+## A triplanar clone of a TexF material — kit meshes carry no UVs, so
+## textures map by world position instead.
+static func _tri(key: String, s: float) -> Material:
+	var ck := key + "|" + str(s)
+	if _tri_cache.has(ck):
+		return _tri_cache[ck]
+	var m: StandardMaterial3D = TexF.mat(key).duplicate()
+	m.uv1_triplanar = true
+	m.uv1_scale = Vector3(s, s, s)
+	_tri_cache[ck] = m
+	return m
 
 
 static func _add_multimesh(root: Node3D, mesh: Mesh, xforms: Array[Transform3D]) -> void:
