@@ -8,6 +8,7 @@ import bmesh
 import math
 import os
 import random
+from mathutils import Vector
 
 OUT = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "kit"))
@@ -85,6 +86,57 @@ def branch(bm, r, length, z, azim_deg, tilt_deg, segments=6):
         v.co.z = z2 + z
 
 
+def limb(bm, start, direction, length, r0, r1, segments=6):
+    """A tapered limb from `start` along `direction`; returns its tip."""
+    d = direction.normalized()
+    ret = bmesh.ops.create_cone(
+        bm, cap_ends=True, cap_tris=True, segments=segments,
+        radius1=r0, radius2=r1, depth=length)
+    rot = Vector((0.0, 0.0, 1.0)).rotation_difference(d)
+    for v in ret["verts"]:
+        v.co.z += length * 0.5
+        v.co.rotate(rot)
+        v.co += start
+    return start + d * length
+
+
+def grow(bm, rng, start, direction, length, radius, depth, lift=0.3):
+    """Recursive limb: a limb that forks into 2-3 thinner, shorter children
+    which fork again, `depth` levels deep. Children leave part-way along the
+    parent (never all from the tip) and curl upward by `lift`, so the result
+    reads as a real tree rather than sticks in a pole."""
+    tip_r = radius * (0.55 if depth > 0 else 0.15)
+    segs = 6 if radius > 0.05 else 4
+    end = limb(bm, start, direction, length, radius, tip_r, segs)
+    if depth == 0:
+        return
+    d = direction.normalized()
+    # a perpendicular frame around the parent axis for the fork directions
+    up = Vector((0.0, 0.0, 1.0))
+    side = d.cross(up)
+    if side.length < 1e-3:
+        side = Vector((1.0, 0.0, 0.0))
+    side.normalize()
+    side2 = d.cross(side).normalized()
+    n = rng.choice([2, 2, 3])
+    base_az = rng.uniform(0.0, math.tau)
+    for i in range(n):
+        # the first child carries on near the tip; the rest leave lower down
+        t = rng.uniform(0.85, 1.0) if i == 0 else rng.uniform(0.45, 0.8)
+        pos = start + (end - start) * t
+        r_here = radius + (tip_r - radius) * t
+        az = base_az + i * math.tau / n + rng.uniform(-0.5, 0.5)
+        spread = math.radians(rng.uniform(18.0, 32.0) if i == 0
+                              else rng.uniform(35.0, 60.0))
+        cd = (d * math.cos(spread)
+              + (side * math.cos(az) + side2 * math.sin(az)) * math.sin(spread))
+        cd = (cd + up * lift).normalized()
+        grow(bm, rng, pos, cd,
+             length * rng.uniform(0.55, 0.75),
+             r_here * rng.uniform(0.65, 0.85),
+             depth - 1, lift * 0.8)
+
+
 def join_and_export(objs, filename):
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
@@ -155,18 +207,35 @@ def make_oak():
 
 
 def make_bare():
+    """Dead tree: kinked trunk that forks into a crown of recursively
+    branching limbs, plus two lower limbs. Trunk top stays at z=4.4 (the
+    game's climb collider height); the crown carries the tree to ~7 m."""
     reset()
     rng = random.Random(23)
     bark = material("bark", (0.32, 0.26, 0.2))
 
     def wood(bm):
-        cone(bm, 0.30, 0.05, 4.4, 2.2, 8)
-        branch(bm, 0.09, 1.7, 2.5, 20, 48)
-        branch(bm, 0.08, 1.5, 3.0, 130, 55)
-        branch(bm, 0.07, 1.3, 3.4, 240, 42)
-        branch(bm, 0.06, 1.0, 3.8, 75, 60)
-        branch(bm, 0.04, 0.8, 2.9, 300, 65)
-        jitter(bm, 0.03, rng, True)
+        # trunk in two slightly kinked pieces, top at 4.4
+        knee = limb(bm, Vector((0.0, 0.0, -0.05)), Vector((0.02, -0.01, 1.0)),
+                    2.5, 0.34, 0.24, 8)
+        top = Vector((0.12, 0.08, 4.4))
+        limb(bm, knee, top - knee, (top - knee).length + 0.03, 0.24, 0.15, 8)
+        # crown: three main limbs forking three levels deep
+        for k, (az, tilt) in enumerate([(15, 34), (140, 42), (255, 38)]):
+            a = math.radians(az + rng.uniform(-10, 10))
+            tl = math.radians(tilt)
+            d = Vector((math.cos(a) * math.sin(tl), math.sin(a) * math.sin(tl),
+                        math.cos(tl)))
+            grow(bm, rng, top + d * 0.05, d, 1.5 + 0.2 * k, 0.13, 3, 0.35)
+        # two lower limbs off the trunk, two levels deep
+        for (az, tilt, z, ln) in [(80, 62, 2.4, 1.4), (300, 55, 3.3, 1.2)]:
+            a = math.radians(az)
+            tl = math.radians(tilt)
+            d = Vector((math.cos(a) * math.sin(tl), math.sin(a) * math.sin(tl),
+                        math.cos(tl)))
+            base = Vector((0.04, 0.02, z)) + d * 0.1
+            grow(bm, rng, base, d, ln, 0.09, 2, 0.3)
+        jitter(bm, 0.015, rng, True)
     trunk = bm_object("trunk", bark, wood)
     join_and_export([trunk], "bare")
 
