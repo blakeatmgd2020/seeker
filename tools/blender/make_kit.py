@@ -188,11 +188,26 @@ def make_oak():
     leaves = material("leaves", (0.2, 0.36, 0.14))
 
     def wood(bm):
-        cone(bm, 0.44, 0.24, 2.9, 1.45, 9)
-        branch(bm, 0.15, 1.7, 2.5, 30, 38)
-        branch(bm, 0.13, 1.5, 2.7, 160, 44)
-        branch(bm, 0.12, 1.3, 2.3, 265, 50)
-        jitter(bm, 0.04, rng, True)
+        # stout leaning trunk that splits into four spreading limbs, each
+        # forking twice into the canopy; one low limb under it
+        top = Vector((0.06, -0.04, 2.6))
+        limb(bm, Vector((0.0, 0.0, -0.05)), top - Vector((0.0, 0.0, -0.05)),
+             2.7, 0.46, 0.3, 9)
+        for k, (az, tilt) in enumerate([(30, 48), (120, 55), (215, 50),
+                                        (305, 58)]):
+            a = math.radians(az + rng.uniform(-8, 8))
+            tl = math.radians(tilt)
+            d = Vector((math.cos(a) * math.sin(tl), math.sin(a) * math.sin(tl),
+                        math.cos(tl)))
+            grow(bm, rng, top + d * 0.05, d, 1.4 + 0.15 * (k % 2), 0.17, 2,
+                 0.25)
+        a = math.radians(170)
+        tl = math.radians(68)
+        d = Vector((math.cos(a) * math.sin(tl), math.sin(a) * math.sin(tl),
+                    math.cos(tl)))
+        grow(bm, rng, Vector((0.03, -0.02, 1.9)) + d * 0.12, d, 1.3, 0.11, 1,
+             0.2)
+        jitter(bm, 0.02, rng, True)
     trunk = bm_object("trunk", bark, wood)
 
     def canopy(bm):

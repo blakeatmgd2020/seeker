@@ -179,19 +179,26 @@ func set_water_features(rvs: Array, seas: Array) -> void:
 	var cell := SIZE / float(RF_N - 1)
 	for rv in rivers:
 		var pts: PackedVector2Array = rv.pts
-		var wch: float = rv.w
-		var reach := wch + 9.0
+		var widths: PackedFloat32Array = rv.get("ws", PackedFloat32Array())
+		var reach_max: float = rv.w * 3.4 + 4.0 + 9.0 * 2.3
 		for si in pts.size() - 1:
 			var a := pts[si]
 			var b := pts[si + 1]
-			var i0 := maxi(int(floor((minf(a.x, b.x) - reach + SIZE * 0.5) / cell)), 0)
-			var i1 := mini(int(ceil((maxf(a.x, b.x) + reach + SIZE * 0.5) / cell)), RF_N - 1)
-			var j0 := maxi(int(floor((minf(a.y, b.y) - reach + SIZE * 0.5) / cell)), 0)
-			var j1 := mini(int(ceil((maxf(a.y, b.y) + reach + SIZE * 0.5) / cell)), RF_N - 1)
+			var wch: float = rv.w if widths.is_empty() \
+				else maxf(widths[si], widths[si + 1])
+			var i0 := maxi(int(floor((minf(a.x, b.x) - reach_max + SIZE * 0.5) / cell)), 0)
+			var i1 := mini(int(ceil((maxf(a.x, b.x) + reach_max + SIZE * 0.5) / cell)), RF_N - 1)
+			var j0 := maxi(int(floor((minf(a.y, b.y) - reach_max + SIZE * 0.5) / cell)), 0)
+			var j1 := mini(int(ceil((maxf(a.y, b.y) + reach_max + SIZE * 0.5) / cell)), RF_N - 1)
 			for j in range(j0, j1 + 1):
 				for i in range(i0, i1 + 1):
 					var p := Vector2(-SIZE * 0.5 + i * cell, -SIZE * 0.5 + j * cell)
 					var d := seg_dist(p, a, b)
+					# Slope-aware banks: the taller the bank above the water,
+					# the longer the blend run — riverbanks stay walkable
+					# (~25 degrees max) instead of turning into cliffs.
+					var rise := clampf(raw_h(p.x, p.y) - water_y, 0.0, 9.0)
+					var reach := wch + 4.0 + rise * 2.3
 					if d >= reach:
 						continue
 					var k := 1.0 - smoothstep(wch * 0.45, reach, d)
@@ -207,12 +214,20 @@ func set_water_features(rvs: Array, seas: Array) -> void:
 							sdom = 1
 						if not sdom in sea_sides:
 							k *= 1.0 - smoothstep(234.0, 246.0, edge)
+					var fd: float = rv.ford.distance_to(p)
+					# The crossing must be exact wading depth whatever the
+					# bank height: full carve strength around the ford (its
+					# bilinear residue on tall banks left fords high and dry).
+					k = maxf(k, 1.0 - smoothstep(5.0, 9.0, fd))
+					var bed := lerpf(water_y - 2.4, water_y - 0.35,
+						1.0 - smoothstep(6.5, 13.0, fd))
 					var idx := j * RF_N + i
-					if k > _rk[idx]:
-						_rk[idx] = k
-						var fd: float = rv.ford.distance_to(p)
-						_rbed[idx] = lerpf(water_y - 2.4, water_y - 0.35,
-							1.0 - smoothstep(4.5, 11.0, fd))
+					# Higher strength wins; on ties the SHALLOWER bed does, so
+					# a ford crossing another river's channel stays wadable.
+					if k > _rk[idx] + 0.0001 \
+							or (k >= _rk[idx] - 0.0001 and bed > _rbed[idx]):
+						_rk[idx] = maxf(_rk[idx], k)
+						_rbed[idx] = bed
 
 
 static func seg_dist(p: Vector2, a: Vector2, b: Vector2) -> float:

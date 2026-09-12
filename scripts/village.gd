@@ -709,36 +709,37 @@ static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String,
 	var ring_mat := TexF.mat("clay") if style == "adobe" else TexF.mat("stone")
 	var res := {}
 	if cavern:
-		# A genuinely open shaft: the rim is a ring of segments (a capped
-		# cylinder would read as a sealed top), stone shaft walls run down
-		# through the terrain hole, and a cavern room waits at the bottom.
+		# A genuinely open shaft with a WIDE mouth: a 12-segment rim ring
+		# (reads properly circular, and leaves headroom to climb the rope
+		# without clipping the stones), stone shaft walls down through the
+		# terrain hole, and a cavern room at the bottom.
 		var stone := TexF.mat("stone")
-		for i in 8:
-			var a := TAU * i / 8.0
-			Util.box(b, Vector3(0.95, 1.0, 0.34),
-				Vector3(cos(a) * 1.06, 0.5, sin(a) * 1.06), ring_mat, true,
+		for i in 12:
+			var a := TAU * i / 12.0
+			Util.box(b, Vector3(0.78, 1.0, 0.36),
+				Vector3(cos(a) * 1.35, 0.5, sin(a) * 1.35), ring_mat, true,
 				Vector3(0, rad_to_deg(a) + 90.0, 0))
 		# Plank cover: sealed until the seeker owns the rope (main hides the
 		# planks and disables the collider), so nobody falls in ropeless.
 		var cover := Node3D.new()
 		b.add_child(cover)
-		for pz in [-0.85, -0.28, 0.28, 0.85]:
-			Util.box(cover, Vector3(2.3, 0.09, 0.46), Vector3(0, 1.06, pz),
+		for pz in [-1.2, -0.6, 0.0, 0.6, 1.2]:
+			Util.box(cover, Vector3(3.0, 0.09, 0.5), Vector3(0, 1.06, pz),
 				TexF.mat("plank"), false)
-		var cover_shape := Util.shape_box(b, Vector3(2.3, 0.12, 2.3), Vector3(0, 1.06, 0))
-		Util.box(b, Vector3(0.35, 4.3, 2.5), Vector3(-1.07, -2.0, 0), stone)
-		Util.box(b, Vector3(0.35, 4.3, 2.5), Vector3(1.07, -2.0, 0), stone)
-		Util.box(b, Vector3(2.5, 4.3, 0.35), Vector3(0, -2.0, -1.07), stone)
-		Util.box(b, Vector3(2.5, 4.3, 0.35), Vector3(0, -2.0, 1.07), stone)
+		var cover_shape := Util.shape_box(b, Vector3(3.0, 0.12, 3.0), Vector3(0, 1.06, 0))
+		Util.box(b, Vector3(0.4, 4.3, 3.1), Vector3(-1.35, -2.0, 0), stone)
+		Util.box(b, Vector3(0.4, 4.3, 3.1), Vector3(1.35, -2.0, 0), stone)
+		Util.box(b, Vector3(3.1, 4.3, 0.4), Vector3(0, -2.0, -1.35), stone)
+		Util.box(b, Vector3(3.1, 4.3, 0.4), Vector3(0, -2.0, 1.35), stone)
 		# Collar slab: covers everything the terrain hole can remove. Its
 		# top sits just below the terrain surface and wears packed earth,
 		# so the exposed patch blends into the plaza instead of reading as
 		# a giant stone pad.
-		_hole_slab(b, -4.4, 4.4, -4.4, 4.4, -1.1, 1.1, -1.1, 1.1, -0.35, 0.6,
+		_hole_slab(b, -4.75, 4.75, -4.75, 4.75, -1.35, 1.35, -1.35, 1.35, -0.35, 0.6,
 			TexF.mat("dirt_mound"))
 		# Cavern: interior x/z ±3.0, floor -6.35, ceiling -4.35.
 		Util.box(b, Vector3(6.6, 0.3, 6.6), Vector3(0, -6.5, 0), stone)
-		_hole_slab(b, -3.3, 3.3, -3.3, 3.3, -0.95, 0.95, -0.95, 0.95, -4.125, 0.35, stone)
+		_hole_slab(b, -3.3, 3.3, -3.3, 3.3, -1.15, 1.15, -1.15, 1.15, -4.125, 0.35, stone)
 		Util.box(b, Vector3(0.3, 2.5, 6.6), Vector3(-3.15, -5.15, 0), stone)
 		Util.box(b, Vector3(0.3, 2.5, 6.6), Vector3(3.15, -5.15, 0), stone)
 		Util.box(b, Vector3(6.6, 2.5, 0.3), Vector3(0, -5.15, -3.15), stone)
@@ -764,19 +765,19 @@ static func _well(root: Node3D, terrain: Terrain, pos: Vector2, style: String,
 		Util.cyl(b, 0.85, 0.85, 0.1, Vector3(0, 1.02, 0), TexF.plain(Color(0.05, 0.08, 0.1)), Vector3.ZERO, 14)
 		Util.shape_cyl(b, 1.2, 1.0, Vector3(0, 0.5, 0))
 	if style == "adobe":
-		Util.box(b, Vector3(2.6, 0.14, 0.14), Vector3(0, 1.6, 0), TexF.mat("darkwood"), false)
-		for px in [-1.15, 1.15]:
-			Util.box(b, Vector3(0.14, 1.2, 0.14), Vector3(px, 1.0, 0), TexF.mat("darkwood"), false)
+		Util.box(b, Vector3(3.2, 0.14, 0.14), Vector3(0, 1.7, 0), TexF.mat("darkwood"), false)
+		for px in [-1.4, 1.4]:
+			Util.box(b, Vector3(0.14, 1.3, 0.14), Vector3(px, 1.05, 0), TexF.mat("darkwood"), false)
 	else:
-		for px in [-1.0, 1.0]:
+		for px in [-1.3, 1.3]:
 			Util.box(b, Vector3(0.14, 2.2, 0.14), Vector3(px, 1.6, 0), TexF.mat("darkwood"), false)
 		var roof := PrismMesh.new()
-		roof.size = Vector3(2.8, 0.9, 2.2)
+		roof.size = Vector3(3.5, 0.95, 2.6)
 		roof.material = TexF.mat("roof_dark") if style == "alpine" else TexF.mat("roof")
 		Util.mesh(b, roof, Vector3(0, 2.9, 0))
 		if style == "alpine":
 			var snow := PrismMesh.new()
-			snow.size = Vector3(2.9, 0.25, 2.3)
+			snow.size = Vector3(3.6, 0.25, 2.7)
 			snow.material = TexF.mat("snow")
-			Util.mesh(b, snow, Vector3(0, 3.42, 0))
+			Util.mesh(b, snow, Vector3(0, 3.45, 0))
 	return res

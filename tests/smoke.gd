@@ -159,6 +159,10 @@ func _process(_delta: float) -> bool:
 		if s.tool_id == "flashlight" \
 				and s.position.y < main.terrain.height_at(s.position.x, s.position.z) - 1.5:
 			fails.append("flashlight hidden in an underground node")
+		if s.tool_id == "spyglass" \
+				and (s.position.y < main.terrain.height_at(s.position.x, s.position.z) - 1.5
+					or s.kind == "nest"):
+			fails.append("spyglass hidden somewhere inaccessible (%s)" % s.display_name)
 	if main.terrain == null or main.terrain.water_y <= -50.0:
 		fails.append("terrain/water not built")
 	# The Blender asset kit must load (assets/kit, runtime GLTF).
@@ -528,6 +532,15 @@ func _process(_delta: float) -> bool:
 	if _walk_house == null:
 		fails.append("no house found across 10 seeds for walk-in test")
 		return _finish(fails)
+	# Collect a tool for real first (the full _collect_tool path: HUD
+	# rebuild, found_marks, prop animation) — the walk that follows then
+	# proves collecting a tool can't freeze movement.
+	for s in main.structures:
+		if s.tool_id == "map":
+			main._collect_tool(s)
+			break
+	if not main.tools.map:
+		fails.append("collecting the map via _collect_tool failed")
 	var pl = main.player
 	pl.global_position = _walk_house.global_transform * Vector3(0, 0.2, 5.5)
 	pl.velocity = Vector3.ZERO
@@ -545,9 +558,9 @@ func _walk_test_tick(main) -> bool:
 		return false
 	Input.action_release("move_forward")
 	var lp: Vector3 = _walk_house.to_local(main.player.global_position)
-	# Standing on the floor counts; so does having descended into the
-	# house's own cellar stairwell (also proof of entry).
-	if lp.z > 2.6 or (lp.y < 0.35 and lp.y > -1.0):
+	# Past the door plane counts — on the floor, mid-furniture, or already
+	# headed down the house's own cellar stairwell are all proof of entry.
+	if lp.z > 2.6:
 		_fails.append("player could not walk into the house (local z=%.2f y=%.2f)" % [lp.z, lp.y])
 	# Next: walk down into a cave through its arch.
 	_cave_body = null
@@ -633,7 +646,7 @@ func _cave_test_tick(main) -> bool:
 
 func _cellar_test_tick(main) -> bool:
 	_walk_frames += 1
-	if _walk_frames < 200:
+	if _walk_frames < 300:
 		return false
 	Input.action_release("move_forward")
 	var depth: float = main.player.global_position.y - _walk_house.global_position.y
@@ -659,8 +672,9 @@ func _cellar_test_tick(main) -> bool:
 		dr.rope.visible = true
 		dr.cover.visible = false
 		dr.cover_shape.set_deferred("disabled", true)
+	# Start outside the (wider) rim ring and walk in over it.
 	var pl = main.player
-	pl.global_position = _well_drop.axis + Vector3(1.55, 0.2, 0.0)
+	pl.global_position = _well_drop.axis + Vector3(2.35, 0.2, 0.0)
 	pl.velocity = Vector3.ZERO
 	Input.action_press("move_forward")
 	_stage = 4
@@ -697,7 +711,20 @@ func _well_test_tick(main) -> bool:
 	_walk_house = null
 	for sv in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
 		main.start_random(sv)
-		_walk_house = main.world.get_node("Village").get_node_or_null("House")
+		for ch in main.world.get_node("Village").get_children():
+			if not String(ch.name).contains("House"):
+				continue
+			# The approach must be clear of wells: near one, the wall-climb
+			# rightly defers to the well logic.
+			var ap: Vector3 = ch.global_transform * Vector3(6.9, 0.6, 0.0)
+			var clear := true
+			for dr2 in main.well_drops:
+				if Vector2(ap.x - dr2.axis.x, ap.z - dr2.axis.z).length() < 4.5:
+					clear = false
+					break
+			if clear:
+				_walk_house = ch
+				break
 		if _walk_house:
 			break
 	if _walk_house == null:

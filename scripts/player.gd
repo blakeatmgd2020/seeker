@@ -467,10 +467,15 @@ func _physics_process(delta: float) -> void:
 	elif main.tools.rope and not climbing \
 			and Time.get_ticks_msec() >= _well_cool_ms:
 		var wdxz := Vector2(wellc.axis.x - global_position.x, wellc.axis.z - global_position.z)
-		if wdxz.length() < 0.75:
+		if wdxz.length() < 1.1:
 			climbing = true
-			velocity.x = move_toward(velocity.x, 0.0, 8.0 * delta)
-			velocity.z = move_toward(velocity.z, 0.0, 8.0 * delta)
+			# Steer onto the rope's centerline while climbing — approaching
+			# from an off angle used to bump your head on the rim stones.
+			var cv := wdxz * 4.0
+			if cv.length() > 1.7:
+				cv = cv.normalized() * 1.7
+			velocity.x = move_toward(velocity.x, cv.x, 10.0 * delta)
+			velocity.z = move_toward(velocity.z, cv.y, 10.0 * delta)
 			velocity.y = maxf(velocity.y - GRAVITY * delta, -3.0)
 			if global_position.y < wellc.rim_y - 2.0:
 				_well_deep = true
@@ -482,7 +487,7 @@ func _physics_process(delta: float) -> void:
 					# Then go deaf to the well briefly so the entry logic
 					# can't snatch us straight back in.
 					var outd := Basis(Vector3.UP, facing) * Vector3(0, 0, -1)
-					velocity = Vector3(outd.x, 0, outd.z).normalized() * 3.0 + Vector3(0, 1.2, 0)
+					velocity = Vector3(outd.x, 0, outd.z).normalized() * 3.6 + Vector3(0, 1.2, 0)
 					_well_deep = false
 					_well_cool_ms = Time.get_ticks_msec() + 900
 				else:
@@ -496,7 +501,7 @@ func _physics_process(delta: float) -> void:
 			var toward := Vector3(wdxz.x, 0, wdxz.y).normalized()
 			var wants_in: bool = iv.y < -0.1 \
 				or (iv.y > 0.1 and fwd.dot(toward) > 0.4)
-			if wants_in and not _well_deep and wdxz.length() < 2.2 \
+			if wants_in and not _well_deep and wdxz.length() < 2.6 \
 					and global_position.y < wellc.rim_y + 0.8:
 				climbing = true
 				if global_position.y >= wellc.rim_y - 0.15:
@@ -513,8 +518,7 @@ func _physics_process(delta: float) -> void:
 		# once the low ray — ankle height — clears the wall top.
 		var low := _grapple_ray(0.3)
 		if low != Vector3.ZERO \
-				and (_wall_climb or (_grapple_ray(0.6) != Vector3.ZERO
-					and _headroom_clear() and not _floor_is_grapple())):
+				and (_wall_climb or (_grapple_ray(0.6) != Vector3.ZERO and _overhead_clear())):
 			climbing = true
 			_wall_climb = true
 			_wall_n = low
@@ -684,7 +688,8 @@ func _near_climbable() -> Dictionary:
 		return {}
 	for c in main.climbables:
 		var d := Vector2(global_position.x - c.axis.x, global_position.z - c.axis.z).length()
-		if d < 2.2 and global_position.y < c.top_y + 1.0:
+		if d < 2.2 and global_position.y < c.top_y + 1.0 \
+				and global_position.y > c.get("base_y", -1e9) - 0.6:
 			return c
 	return {}
 
@@ -708,25 +713,15 @@ func _grapple_ray(hoff: float) -> Vector3:
 	return hit.normal
 
 
-## True when nothing but open sky (or a roof overhang) is overhead — keeps
-## wall-climbing from pinning you to an interior ceiling.
-func _headroom_clear() -> bool:
-	var from := global_position + Vector3(0, 1.9, 0)
-	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3(0, 1.9, 0), 1)
+## True when nothing solid hangs within a couple of meters overhead —
+## indoors there is always a ceiling there, so wall climbs only start
+## outside (starting one inside just pins you to the ceiling). Roof eave
+## collision stops at the wall plane, so an outside wall stays clear.
+func _overhead_clear() -> bool:
+	var from := global_position + Vector3(0, 1.85, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3(0, 2.2, 0), 1)
 	q.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	return hit.is_empty() or hit.collider.is_in_group("roof")
-
-
-## Standing on a scalable body's own floor means we're INSIDE it — starting
-## a wall climb there just pins you against the ceiling.
-func _floor_is_grapple() -> bool:
-	var from := global_position + Vector3(0, 0.3, 0)
-	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3(0, -0.8, 0), 1)
-	q.exclude = [get_rid()]
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	return not hit.is_empty() and hit.collider.is_in_group("grapple") \
-		and hit.normal.y > 0.6
+	return get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
 
 func _near_well() -> Dictionary:
@@ -734,7 +729,7 @@ func _near_well() -> Dictionary:
 		return {}
 	for w in main.well_drops:
 		var d := Vector2(global_position.x - w.axis.x, global_position.z - w.axis.z).length()
-		if d < 2.0 and global_position.y > w.floor_y - 0.5 \
+		if d < 2.8 and global_position.y > w.floor_y - 0.5 \
 				and global_position.y < w.rim_y + 1.4:
 			return w
 	return {}

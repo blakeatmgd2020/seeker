@@ -49,10 +49,11 @@ void fragment() {
 }
 "
 
-const VERSION := "r17 · 2026-09-09 16:00"
+const VERSION := "r18 · 2026-09-11 15:30"
 ## One digest per release, newest first — readable in-game from the Dev
 ## Note interface so a playtest knows what to look out for.
 const CHANGELOG := [
+	"r18 · 2026-09-11 15:30 — Rivers WANDER now: they arc through a random waypoint, may bend out an adjacent side of the map, and some end in an interior lake they feed — no more straight lines. Riverbanks are slope-aware: however tall the bank, it blends out at a walkable grade. Fords are guaranteed wading depth on any terrain (and steer clear of other channels). Wells: wider, properly circular 12-stone mouths, and the rope climb steers you onto the centerline — no more head-bumps on the rim. Sun/moon glow no longer halos through hills. Weather: smaller, finer flakes/drops/leaves, and density + wind direction now drift and swing over the session. The spyglass always hides somewhere accessible — never underground, never up a nest. Movement-freeze report investigated: not reproducible in this build; a tool-collect-then-walk check now guards it in the test suite.",
 	"r17 · 2026-09-09 16:00 — Aesthetics push, layer 3 begins: THE BLENDER KIT. A headless Blender pipeline now builds real models for the world — first wave: pines with irregular drooping tiers, oaks with actual branches under clumped canopies, gnarled bare and dead trees, snow-capped winter pines, and lumpy displaced boulders (big and small). One mesh per species, re-skinned per biome, so autumn oaks and Undervault deadwood come from the same models. Textures map through the new triplanar path — no UV seams. More kit waves to come: buildings, furniture, wells.",
 	"r16 · 2026-09-09 15:00 — Aesthetics push, layer 2: REAL TEXTURES. Fourteen CC0 photo texture sets (Poly Haven) replace the flat procedural noise on the world's key surfaces: real grass, sand, snow, ash, and forest-floor ground per biome (with normal maps, so it catches the light), real plaster, planks, bark, stone, and clay roof tiles on every building, tree, and well. Biome palettes preserved through tinting — the Undervault is still blue-dark, Cinderwaste still charred. Next layer: a Blender-built model kit for buildings and furniture.",
 	"r15 · 2026-09-09 14:00 — Environment epic, phase 3: RIVERS AND SHORES. Meandering rivers carve real channels across most maps (three in the Riverlands, gorges in Craghold, none under the Undervault or Sunscar). Deep water is a slog to wade — cross at the FORD (stepping stones, knee deep) or the plank BRIDGE where a river passes a village. Some maps trade a mountain wall for open sea (Saltwind Dunes is always coastal; rivers empty into it). Winter rivers freeze solid — walk right across. Rivers, seas, and fords all ink onto your maps.",
@@ -248,6 +249,7 @@ func _village_clear(p: Vector2, margin: float) -> bool:
 
 func _process(delta: float) -> void:
 	_update_daylight(delta)
+	_weather_drift(delta)
 	if _water_mat == null or player == null or terrain == null:
 		return
 	var in_water: bool = world != null \
@@ -477,7 +479,7 @@ func _build_world() -> void:
 		if wd.cavern:
 			# Open the terrain inside the well shaft; the collar slab covers
 			# the over-removal.
-			terrain.add_hole_rect(wd.c, Vector2(1.1, 1.1), 0.0)
+			terrain.add_hole_rect(wd.c, Vector2(1.35, 1.35), 0.0)
 	var vnodes := 0
 	for b in lay.buildings:
 		if b.node:
@@ -604,7 +606,11 @@ func _build_world() -> void:
 			climbables.append({axis = Vector3(s.position.x, 0, s.position.z),
 				top_y = s.position.y})
 	for ld in village.ladders:
-		climbables.append({axis = ld.axis, top_y = ld.top_y, free = true})
+		# base_y keeps the free climb anchored to the ladder itself — the
+		# cellar under a roofdeck house is inside the 2.2 m radius too, and
+		# holding W down there used to hoist you through the building.
+		climbables.append({axis = ld.axis, top_y = ld.top_y, free = true,
+			base_y = ld.axis.y})
 	well_drops = village.drops
 
 	# Small birds commute between the nests — follow one to find them. They
@@ -935,8 +941,8 @@ func _apply_weather(wrng: RandomNumberGenerator) -> void:
 	_cloud_cover = 0.35
 	match weather_id:
 		"rain":
-			_weather_node = _precip(900, 1.4, Vector2(0.03, 0.34),
-				Color(0.62, 0.72, 0.88, 0.55), Vector3(0, -1, 0), 16.0, Vector3(0, -12, 0))
+			_weather_node = _precip(1150, 1.4, Vector2(0.02, 0.3),
+				Color(0.62, 0.72, 0.88, 0.5), Vector3(0, -1, 0), 16.0, Vector3(0, -12, 0))
 			_wx_fog_add = 0.0008
 			_wx_sun_mult = 0.85
 			_wx_moon = 0.15
@@ -945,7 +951,7 @@ func _apply_weather(wrng: RandomNumberGenerator) -> void:
 			# Ashlands recolor the flakes into grey ashfall. Flakes drift
 			# down slowly on wandering paths: light gravity against damping
 			# settles a gentle terminal speed, and turbulence meanders them.
-			_weather_node = _precip(820, 13.0, Vector2(0.07, 0.07),
+			_weather_node = _precip(1050, 13.0, Vector2(0.042, 0.042),
 				biome.get("snow_color", Color(0.96, 0.97, 1.0, 0.9)),
 				Vector3(0, -1, 0), 0.8, Vector3(0, -0.9, 0))
 			var spm: ParticleProcessMaterial = _weather_node.process_material
@@ -965,7 +971,7 @@ func _apply_weather(wrng: RandomNumberGenerator) -> void:
 			_cloud_cover = 0.9
 		"wind":
 			var a := wrng.randf_range(0.0, TAU)
-			_weather_node = _precip(520, 2.2, Vector2(0.42, 0.07), biome.debris,
+			_weather_node = _precip(560, 2.2, Vector2(0.3, 0.05), biome.debris,
 				Vector3(cos(a), -0.15, sin(a)), 22.0, Vector3(0, -2, 0))
 			_wx_fog_add = 0.0015
 			_wx_sun_mult = 0.9
@@ -977,6 +983,30 @@ func _apply_weather(wrng: RandomNumberGenerator) -> void:
 		elif weather_id == "rain":
 			wind_amt = 0.45
 		_water_mat.set_shader_parameter("wind_amt", wind_amt)
+
+
+var _wx_t := 0.0
+
+
+## Weather lives and breathes over a session: particle density swells and
+## eases over minutes, and a slowly wandering wind pushes snow and rain
+## off-vertical and swings debris gales around.
+func _weather_drift(delta: float) -> void:
+	if _weather_node == null or not is_instance_valid(_weather_node):
+		return
+	_wx_t += delta
+	_weather_node.amount_ratio = clampf(
+		0.68 + 0.32 * sin(_wx_t * 0.045 + 1.2) * sin(_wx_t * 0.013), 0.25, 1.0)
+	var wa := sin(_wx_t * 0.021) * 2.6 + sin(_wx_t * 0.007) * 1.9
+	var ws := 0.5 + 0.5 * sin(_wx_t * 0.031 + 0.7)
+	var pm: ParticleProcessMaterial = _weather_node.process_material
+	match weather_id:
+		"snow":
+			pm.gravity = Vector3(cos(wa) * 0.9 * ws, -0.9, sin(wa) * 0.9 * ws)
+		"rain":
+			pm.gravity = Vector3(cos(wa) * 3.2 * ws, -12.0, sin(wa) * 3.2 * ws)
+		"wind":
+			pm.direction = Vector3(cos(wa * 0.35), -0.15, sin(wa * 0.35))
 
 
 func _precip(amount: int, life: float, size: Vector2, color: Color, dir: Vector3,
@@ -1095,11 +1125,16 @@ func _assign_tools(trng: RandomNumberGenerator) -> void:
 		var i := trng.randi_range(0, structures.size() - 1)
 		if i in picks:
 			continue
+		var id_next: String = ids[picks.size()]
+		var underground: bool = structures[i].position.y < terrain.height_at(
+			structures[i].position.x, structures[i].position.z) - 1.5
 		# The flashlight is never buried in an underground node — you need
-		# it to reach those places, not the other way round.
-		if ids[picks.size()] == "flashlight" \
-				and structures[i].position.y < terrain.height_at(
-					structures[i].position.x, structures[i].position.z) - 1.5:
+		# it to reach those places, not the other way round. The spyglass
+		# always turns up somewhere ACCESSIBLE: never underground, never up
+		# a nest — it's the tool that makes the rest findable.
+		if id_next == "flashlight" and underground:
+			continue
+		if id_next == "spyglass" and (underground or structures[i].kind == "nest"):
 			continue
 		picks.append(i)
 	for k in ids.size():
@@ -1303,11 +1338,13 @@ func _setup_environment() -> void:
 	_env.volumetric_fog_anisotropy = 0.55
 	# Same trap as fog_sky_affect: the default 1.0 repaints the skybox.
 	_env.volumetric_fog_sky_affect = 0.05
-	# Soft bloom so flames, lantern panes, and embers actually glow.
+	# Soft bloom so flames, lantern panes, and embers actually glow. The
+	# threshold sits high enough that bright sky near the horizon doesn't
+	# halo THROUGH hill silhouettes.
 	_env.glow_enabled = true
-	_env.glow_intensity = 0.45
+	_env.glow_intensity = 0.32
 	_env.glow_bloom = 0.02
-	_env.glow_hdr_threshold = 1.15
+	_env.glow_hdr_threshold = 1.45
 	# Gentle grade; saturation is re-driven per-frame by the day cycle.
 	_env.adjustment_enabled = true
 	_env.adjustment_contrast = 1.04
@@ -1385,41 +1422,69 @@ func _gen_rivers(wrng: RandomNumberGenerator) -> void:
 	if count < 0:
 		count = 1 if wrng.randf() < 0.55 else 0
 	for ri in count:
-		# Rivers run edge to edge; with a sea rolled, they empty into it.
-		var side_out: int = sea_sides[wrng.randi_range(0, sea_sides.size() - 1)] \
-			if not sea_sides.is_empty() else wrng.randi_range(0, 3)
-		var side_in := side_out ^ 1
-		var a := _side_point(side_in, wrng.randf_range(-150.0, 150.0))
-		var b := _side_point(side_out, wrng.randf_range(-150.0, 150.0))
-		var dirv := b - a
-		var un := dirv.normalized()
-		var pn := Vector2(-un.y, un.x)
-		var a1 := wrng.randf_range(20.0, 55.0)
+		# Route variety: with a sea, rivers empty into it; otherwise a river
+		# may cross to the opposite side, bend out an ADJACENT side, or end
+		# in an interior lake it feeds. All of them arc through a random
+		# waypoint (quadratic bezier) with meander on top — no beelines.
+		var a: Vector2
+		var b: Vector2
+		var to_lake := false
+		if not sea_sides.is_empty():
+			var side_out: int = sea_sides[wrng.randi_range(0, sea_sides.size() - 1)]
+			a = _side_point(_pick_other_side(wrng, side_out), wrng.randf_range(-150.0, 150.0))
+			b = _side_point(side_out, wrng.randf_range(-150.0, 150.0))
+		elif wrng.randf() < 0.28:
+			to_lake = true
+			a = _side_point(wrng.randi_range(0, 3), wrng.randf_range(-150.0, 150.0))
+			b = Vector2(wrng.randf_range(-110.0, 110.0), wrng.randf_range(-110.0, 110.0))
+		else:
+			var side_in := wrng.randi_range(0, 3)
+			a = _side_point(side_in, wrng.randf_range(-150.0, 150.0))
+			b = _side_point(_pick_other_side(wrng, side_in), wrng.randf_range(-150.0, 150.0))
+		var ctrl := Vector2(wrng.randf_range(-130.0, 130.0), wrng.randf_range(-130.0, 130.0))
+		var a1 := wrng.randf_range(22.0, 55.0)
 		var f1 := wrng.randf_range(0.5, 1.1)
 		var p1 := wrng.randf_range(0.0, TAU)
 		var a2 := wrng.randf_range(6.0, 16.0)
 		var f2 := wrng.randf_range(1.5, 2.5)
 		var p2 := wrng.randf_range(0.0, TAU)
-		var np := maxi(int(dirv.length() / 8.0), 12)
+		var wch := wrng.randf_range(4.5, 6.5) + (2.0 if biome.id == "riverlands" else 0.0)
+		var np := maxi(int((a.distance_to(ctrl) + ctrl.distance_to(b)) / 8.0), 16)
 		var pts := PackedVector2Array()
+		var ws := PackedFloat32Array()
 		for i in np + 1:
 			var t := float(i) / np
+			var base := a.lerp(ctrl, t).lerp(ctrl.lerp(b, t), t)
+			var t2 := minf(t + 0.02, 1.0)
+			var base2 := a.lerp(ctrl, t2).lerp(ctrl.lerp(b, t2), t2)
+			var tn := (base2 - base).normalized()
+			var pn := Vector2(-tn.y, tn.x)
 			var env := sin(t * PI)
 			var off := sin(t * TAU * f1 + p1) * a1 * env + sin(t * TAU * f2 + p2) * a2 * env
-			var p := a + dirv * t + pn * off
+			var p := base + pn * off
 			pts.append(Vector2(clampf(p.x, -250.0, 250.0), clampf(p.y, -250.0, 250.0)))
-		var wch := wrng.randf_range(4.5, 6.5) + (2.0 if biome.id == "riverlands" else 0.0)
-		# The ford needs solid land under it — carving only LOWERS terrain,
-		# so a spot already drowned in a natural hollow can't shallow up.
+			# Lake-fed rivers swell into a terminal basin over the last leg.
+			ws.append(wch * (1.0 + (2.4 * smoothstep(0.72, 1.0, t) if to_lake else 0.0)))
+		# The ford needs solid land under it (carving only LOWERS terrain)
+		# and clearance from any earlier river's channel.
 		var ford := pts[int(np * 0.5)]
 		var fj := wrng.randi_range(0, 7)
 		for i in 8:
 			var cand := pts[int(np * (0.3 + 0.05 * ((fj + i) % 8)))]
-			if terrain.raw_h(cand.x, cand.y) > terrain.water_y + 0.5:
-				ford = cand
-				break
-		river_data.append({pts = pts, w = wch, ford = ford})
+			if terrain.raw_h(cand.x, cand.y) <= terrain.water_y + 0.5:
+				continue
+			if _river_dist(cand) < 16.0:
+				continue
+			ford = cand
+			break
+		river_data.append({pts = pts, w = wch, ws = ws, ford = ford})
 	terrain.set_water_features(river_data, sea_sides)
+
+
+static func _pick_other_side(wrng: RandomNumberGenerator, s: int) -> int:
+	var opts: Array = [0, 1, 2, 3]
+	opts.erase(s)
+	return opts[wrng.randi_range(0, 2)]
 
 
 static func _side_point(side: int, along: float) -> Vector2:
@@ -1475,8 +1540,12 @@ func _build_river_bits(wrng: RandomNumberGenerator) -> void:
 		# One bridge per river at its closest pass by a village.
 		var bbest := 55.0
 		var bi := -1
+		var widths: PackedFloat32Array = rv.get("ws", PackedFloat32Array())
 		for vd in _cur_vils:
 			for i in range(2, pts.size() - 2):
+				# No bridging a terminal lake basin — the deck can't span it.
+				if not widths.is_empty() and widths[i] > rv.w * 1.3:
+					continue
 				var d2: float = pts[i].distance_to(vd.c)
 				if d2 < bbest:
 					bbest = d2
@@ -1739,7 +1808,7 @@ func _shot_routine() -> void:
 		# First the sealed mouth from above, then the cavern with the rope.
 		var wxcam := Camera3D.new()
 		add_child(wxcam)
-		wxcam.global_position = dr.axis + Vector3(3.5, 4.0, 3.5)
+		wxcam.global_position = dr.axis + Vector3(5.2, 6.5, -5.2)
 		wxcam.look_at(dr.axis + Vector3(0, 0.9, 0))
 		wxcam.current = true
 		await get_tree().create_timer(0.7).timeout

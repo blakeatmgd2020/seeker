@@ -20,9 +20,21 @@ func _process(_d: float) -> bool:
 		main.start_daily()
 		for sv in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
 			main.start_random(sv)
-			_house = main.world.get_node("Village").get_node_or_null("House")
+			for ch in main.world.get_node("Village").get_children():
+				if not String(ch.name).contains("House"):
+					continue
+				var ap: Vector3 = ch.global_transform * Vector3(6.9, 0.6, 0.0)
+				var clear := true
+				for dr2 in main.well_drops:
+					if Vector2(ap.x - dr2.axis.x, ap.z - dr2.axis.z).length() < 4.5:
+						clear = false
+						break
+				if clear:
+					_house = ch
+					break
 			if _house:
 				break
+		print("fixture: %s at %s" % [_house.name, str(_house.global_position)])
 		main.tools.rope = true
 		main.tools.grapple = true
 		var pl = main.player
